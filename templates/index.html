@@ -474,6 +474,13 @@
                 
                 if (data.error) {
                     showError(data.error);
+                    if (data.debug_info) {
+                        const debugLines = data.debug_info.split('\n');
+                        debugLines.forEach(line => addLog(line));
+                    }
+                    if (data.traceback) {
+                        console.error('Traceback:', data.traceback);
+                    }
                     return;
                 }
                 
@@ -486,7 +493,7 @@
                     addLog('📝 TX: ' + data.tx_signature.substring(0, 12) + '...');
                 }
                 
-                updateInterval =setInterval(fetchStatus, 5000);
+                updateInterval = setInterval(fetchStatus, 5000);
                 runtimeInterval = setInterval(updateRuntime, 1000);
                 fetchStatus();
                 
