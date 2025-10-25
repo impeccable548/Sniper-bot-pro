@@ -4,6 +4,7 @@ from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
+from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 from solders.message import MessageV0
 from solders.instruction import Instruction, AccountMeta
@@ -180,23 +181,29 @@ class PumpFunSDK:
             
             # Wait for confirmation
             print(f"⏳ Waiting for confirmation...")
+            
+            # Convert string signature to Signature object
+            sig_obj = Signature.from_string(signature)
+            
             max_attempts = 30
             for i in range(max_attempts):
                 time.sleep(2)
-                status = self.client.get_signature_statuses([signature]).value[0]
-                if status and status.confirmation_status:
-                    if status.err:
-                        return {"success": False, "error": f"Transaction failed: {status.err}"}
-                    print(f"✅ Transaction confirmed!")
-                    
-                    # Estimate tokens received (simplified)
-                    tokens_received = amount_sol * 1e6  # Rough estimate
-                    
-                    return {
-                        "success": True,
-                        "signature": signature,
-                        "tokens_received": tokens_received
-                    }
+                status_response = self.client.get_signature_statuses([sig_obj])
+                if status_response and status_response.value and len(status_response.value) > 0:
+                    status = status_response.value[0]
+                    if status and status.confirmation_status:
+                        if status.err:
+                            return {"success": False, "error": f"Transaction failed: {status.err}"}
+                        print(f"✅ Transaction confirmed!")
+                        
+                        # Estimate tokens received (simplified)
+                        tokens_received = amount_sol * 1e6  # Rough estimate
+                        
+                        return {
+                            "success": True,
+                            "signature": signature,
+                            "tokens_received": tokens_received
+                        }
             
             return {"success": False, "error": "Transaction timeout"}
             
