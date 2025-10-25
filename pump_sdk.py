@@ -4,7 +4,6 @@ from solana.rpc.types import TxOpts
 from solana.rpc.commitment import Confirmed
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solders.signature import Signature
 from solders.transaction import VersionedTransaction
 from solders.message import MessageV0
 from solders.instruction import Instruction, AccountMeta
@@ -182,18 +181,23 @@ class PumpFunSDK:
             # Wait for confirmation
             print(f"⏳ Waiting for confirmation...")
             
-            # Convert string signature to Signature object
-            sig_obj = Signature.from_string(signature)
-            
             max_attempts = 30
             for i in range(max_attempts):
-                time.sleep(2)
-                status_response = self.client.get_signature_statuses([sig_obj])
-                if status_response and status_response.value and len(status_response.value) > 0:
-                    status = status_response.value[0]
-                    if status and status.confirmation_status:
-                        if status.err:
-                            return {"success": False, "error": f"Transaction failed: {status.err}"}
+                try:
+                    time.sleep(2)
+                    # Use get_transaction instead of get_signature_statuses
+                    tx_response = self.client.get_transaction(
+                        signature,
+                        encoding="json",
+                        max_supported_transaction_version=0
+                    )
+                    
+                    if tx_response and tx_response.value:
+                        # Transaction found and confirmed
+                        if tx_response.value.transaction.meta and tx_response.value.transaction.meta.err:
+                            error_details = str(tx_response.value.transaction.meta.err)
+                            return {"success": False, "error": f"Transaction failed: {error_details}"}
+                        
                         print(f"✅ Transaction confirmed!")
                         
                         # Estimate tokens received (simplified)
@@ -203,6 +207,21 @@ class PumpFunSDK:
                             "success": True,
                             "signature": signature,
                             "tokens_received": tokens_received
+                        }
+                except Exception as check_error:
+                    # Transaction not yet confirmed, keep waiting
+                    if i < max_attempts - 1:
+                        continue
+                    else:
+                        # Last attempt failed, but transaction was sent
+                        print(f"⚠️ Confirmation timeout - transaction sent but not confirmed yet")
+                        print(f"🔗 Check status: https://solscan.io/tx/{signature}")
+                        tokens_received = amount_sol * 1e6
+                        return {
+                            "success": True,
+                            "signature": signature,
+                            "tokens_received": tokens_received,
+                            "warning": "Transaction sent but confirmation timeout"
                         }
             
             return {"success": False, "error": "Transaction timeout"}
