@@ -109,58 +109,97 @@ class BotManager:
         """Get token price from bonding curve"""
         try:
             response = self.client.get_account_info(Pubkey.from_string(bonding_curve))
-            if not response.value or not response.value.data:
-                print("No bonding curve data found")
+            if not response.value:
+                print("❌ No response value from RPC")
                 return 0, 0
             
-            # Get the data - handle both tuple and direct bytes
+            if not response.value.data:
+                print("❌ No data in response")
+                return 0, 0
+            
+            # Debug: Print data type
             data_raw = response.value.data
-            if isinstance(data_raw, tuple):
-                data = base64.b64decode(data_raw[0])
-            elif isinstance(data_raw, bytes):
-                data = data_raw
-            else:
-                data = base64.b64decode(str(data_raw))
+            print(f"🔍 Data type: {type(data_raw)}")
+            print(f"🔍 Data value: {str(data_raw)[:100]}...")
             
-            print(f"📊 Bonding curve data length: {len(data)} bytes")
-            
-            # Parse Pump.fun bonding curve data
-            # These offsets may need adjustment based on actual Pump.fun structure
+            # Handle different data formats
+            data = None
             try:
-                # Try to extract reserves (adjust offsets if needed)
-                virtual_sol_reserves = struct.unpack('<Q', data[16:24])[0] / 1e9
-                virtual_token_reserves = struct.unpack('<Q', data[8:16])[0] / 1e6
-                
-                print(f"💧 SOL Reserves: {virtual_sol_reserves:.4f} SOL")
-                print(f"🪙 Token Reserves: {virtual_token_reserves:.2f} tokens")
-                
-                if virtual_token_reserves > 0:
-                    price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                    print(f"💰 Calculated Price: {price_in_sol:.10f} SOL")
-                    return price_in_sol, virtual_sol_reserves
+                if hasattr(data_raw, '__iter__') and not isinstance(data_raw, (str, bytes)):
+                    # It's iterable (tuple or list)
+                    print("📦 Data is iterable (tuple/list)")
+                    if len(data_raw) > 0:
+                        first_element = data_raw[0]
+                        print(f"🔍 First element type: {type(first_element)}")
+                        if isinstance(first_element, str):
+                            data = base64.b64decode(first_element)
+                        elif isinstance(first_element, bytes):
+                            data = first_element
+                        else:
+                            data = base64.b64decode(str(first_element))
+                elif isinstance(data_raw, bytes):
+                    print("📦 Data is already bytes")
+                    data = data_raw
+                elif isinstance(data_raw, str):
+                    print("📦 Data is string")
+                    data = base64.b64decode(data_raw)
                 else:
-                    print("⚠️ Token reserves is zero")
+                    print(f"📦 Unknown data format, converting to string")
+                    data = base64.b64decode(str(data_raw))
+                
+                if not data:
+                    print("❌ Failed to convert data to bytes")
                     return 0, 0
                     
-            except struct.error as e:
-                print(f"❌ Error parsing bonding curve structure: {e}")
-                # Try alternative parsing
-                if len(data) >= 40:
-                    # Alternative offsets
-                    try:
-                        virtual_sol_reserves = struct.unpack('<Q', data[24:32])[0] / 1e9
-                        virtual_token_reserves = struct.unpack('<Q', data[16:24])[0] / 1e6
-                        
-                        if virtual_token_reserves > 0:
-                            price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                            return price_in_sol, virtual_sol_reserves
-                    except:
-                        pass
+                print(f"✅ Successfully decoded data: {len(data)} bytes")
                 
+            except Exception as decode_error:
+                print(f"❌ Error decoding data: {decode_error}")
+                import traceback
+                traceback.print_exc()
+                return 0, 0
+            
+            # Parse Pump.fun bonding curve data
+            if len(data) < 32:
+                print(f"❌ Data too short: {len(data)} bytes (need at least 32)")
+                return 0, 0
+            
+            try:
+                # Try multiple offset combinations
+                offset_attempts = [
+                    (16, 24, 8, 16),   # Original
+                    (24, 32, 16, 24),  # Alternative 1
+                    (32, 40, 24, 32),  # Alternative 2
+                ]
+                
+                for sol_start, sol_end, token_start, token_end in offset_attempts:
+                    try:
+                        if len(data) >= sol_end and len(data) >= token_end:
+                            virtual_sol_reserves = struct.unpack('<Q', data[sol_start:sol_end])[0] / 1e9
+                            virtual_token_reserves = struct.unpack('<Q', data[token_start:token_end])[0] / 1e6
+                            
+                            print(f"🧪 Testing offsets [{sol_start}:{sol_end}] and [{token_start}:{token_end}]")
+                            print(f"   SOL: {virtual_sol_reserves:.4f}, Token: {virtual_token_reserves:.2f}")
+                            
+                            if virtual_token_reserves > 0 and virtual_sol_reserves > 0:
+                                price_in_sol = virtual_sol_reserves / virtual_token_reserves
+                                print(f"✅ Price calculated: {price_in_sol:.10f} SOL")
+                                return price_in_sol, virtual_sol_reserves
+                    except Exception as offset_error:
+                        print(f"⚠️ Offset attempt failed: {offset_error}")
+                        continue
+                
+                print("❌ All offset attempts failed")
+                return 0, 0
+                    
+            except Exception as parse_error:
+                print(f"❌ Error parsing structure: {parse_error}")
+                import traceback
+                traceback.print_exc()
                 return 0, 0
             
         except Exception as e:
-            print(f"❌ Error getting price: {e}")
+            print(f"❌ Fatal error getting price: {e}")
             import traceback
             traceback.print_exc()
             return 0, 0
@@ -244,37 +283,50 @@ class BotManager:
     
     def start_bot(self, token_address, buy_amount_sol, take_profit_percent):
         """Start the sniper bot"""
+        debug_log = []
         try:
             if not self.wallet:
-                return {"success": False, "error": "Private key not configured"}
+                return {"success": False, "error": "Private key not configured", "debug_info": "No wallet found"}
             
             if self.active:
-                return {"success": False, "error": "Bot already running"}
+                return {"success": False, "error": "Bot already running", "debug_info": "Bot is already active"}
             
-            print(f"🚀 Starting Sniper Pro Bot...")
-            print(f"📍 Token: {token_address}")
-            print(f"💰 Amount: {buy_amount_sol} SOL")
-            print(f"🎯 TP: +{take_profit_percent}%")
+            debug_log.append("🚀 Starting Sniper Pro Bot...")
+            debug_log.append(f"📍 Token: {token_address}")
+            debug_log.append(f"💰 Amount: {buy_amount_sol} SOL")
+            debug_log.append(f"🎯 TP: +{take_profit_percent}%")
+            
+            print("\n".join(debug_log))
             
             # Derive bonding curve address
             bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
             if not bonding_curve:
-                return {"success": False, "error": "Failed to derive bonding curve address"}
+                error = "Failed to derive bonding curve address"
+                debug_log.append(f"❌ {error}")
+                return {"success": False, "error": error, "debug_info": "\n".join(debug_log)}
             
+            debug_log.append(f"📊 Bonding Curve: {bonding_curve}")
             print(f"📊 Bonding Curve: {bonding_curve}")
             
             # Get initial price
             price_sol, curve_sol = self.get_token_price(bonding_curve)
+            debug_log.append(f"🔍 Price check: {price_sol} SOL, Curve SOL: {curve_sol}")
+            
             if price_sol == 0:
-                return {"success": False, "error": "Could not fetch token price"}
+                error = "Could not fetch token price - token may not be on bonding curve"
+                debug_log.append(f"❌ {error}")
+                return {"success": False, "error": error, "debug_info": "\n".join(debug_log)}
             
             sol_price_usd = self.get_sol_price()
             entry_price_usd = price_sol * sol_price_usd
             
+            debug_log.append(f"💲 Entry Price: ${entry_price_usd:.10f} ({price_sol:.10f} SOL)")
             print(f"💲 Entry Price: ${entry_price_usd:.10f} ({price_sol:.10f} SOL)")
             
             # Execute buy
+            debug_log.append("🔨 Executing buy transaction...")
             print("🔨 Executing buy transaction...")
+            
             buy_result = self.pump_sdk.buy_token(
                 token_mint=token_address,
                 bonding_curve=bonding_curve,
@@ -282,11 +334,15 @@ class BotManager:
             )
             
             if not buy_result.get('success'):
-                return {"success": False, "error": buy_result.get('error', 'Buy failed')}
+                error = buy_result.get('error', 'Buy failed')
+                debug_log.append(f"❌ Buy failed: {error}")
+                return {"success": False, "error": error, "debug_info": "\n".join(debug_log)}
             
             tx_signature = buy_result.get('signature')
             tokens_received = buy_result.get('tokens_received', buy_amount_sol / price_sol)
             
+            debug_log.append(f"✅ Buy successful! TX: {tx_signature}")
+            debug_log.append(f"💼 Received: {tokens_received:,.2f} tokens")
             print(f"✅ Buy successful! TX: {tx_signature}")
             print(f"💼 Received: {tokens_received:,.2f} tokens")
             
@@ -331,12 +387,17 @@ class BotManager:
                 "success": True,
                 "tx_signature": tx_signature,
                 "tokens_received": tokens_received,
-                "entry_price": entry_price_usd
+                "entry_price": entry_price_usd,
+                "debug_info": "\n".join(debug_log)
             }
             
         except Exception as e:
-            print(f"❌ Error starting bot: {e}")
-            return {"success": False, "error": str(e)}
+            error_msg = f"Error starting bot: {str(e)}"
+            debug_log.append(f"❌ {error_msg}")
+            print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "error": error_msg, "debug_info": "\n".join(debug_log)}
     
     def stop_bot(self):
         """Stop the bot"""
