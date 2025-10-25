@@ -110,22 +110,59 @@ class BotManager:
         try:
             response = self.client.get_account_info(Pubkey.from_string(bonding_curve))
             if not response.value or not response.value.data:
+                print("No bonding curve data found")
                 return 0, 0
             
-            data = base64.b64decode(response.value.data[0])
+            # Get the data - handle both tuple and direct bytes
+            data_raw = response.value.data
+            if isinstance(data_raw, tuple):
+                data = base64.b64decode(data_raw[0])
+            elif isinstance(data_raw, bytes):
+                data = data_raw
+            else:
+                data = base64.b64decode(str(data_raw))
+            
+            print(f"📊 Bonding curve data length: {len(data)} bytes")
             
             # Parse Pump.fun bonding curve data
-            # Offsets based on Pump.fun program structure
-            virtual_sol_reserves = struct.unpack('<Q', data[16:24])[0] / 1e9
-            virtual_token_reserves = struct.unpack('<Q', data[8:16])[0] / 1e6
+            # These offsets may need adjustment based on actual Pump.fun structure
+            try:
+                # Try to extract reserves (adjust offsets if needed)
+                virtual_sol_reserves = struct.unpack('<Q', data[16:24])[0] / 1e9
+                virtual_token_reserves = struct.unpack('<Q', data[8:16])[0] / 1e6
+                
+                print(f"💧 SOL Reserves: {virtual_sol_reserves:.4f} SOL")
+                print(f"🪙 Token Reserves: {virtual_token_reserves:.2f} tokens")
+                
+                if virtual_token_reserves > 0:
+                    price_in_sol = virtual_sol_reserves / virtual_token_reserves
+                    print(f"💰 Calculated Price: {price_in_sol:.10f} SOL")
+                    return price_in_sol, virtual_sol_reserves
+                else:
+                    print("⚠️ Token reserves is zero")
+                    return 0, 0
+                    
+            except struct.error as e:
+                print(f"❌ Error parsing bonding curve structure: {e}")
+                # Try alternative parsing
+                if len(data) >= 40:
+                    # Alternative offsets
+                    try:
+                        virtual_sol_reserves = struct.unpack('<Q', data[24:32])[0] / 1e9
+                        virtual_token_reserves = struct.unpack('<Q', data[16:24])[0] / 1e6
+                        
+                        if virtual_token_reserves > 0:
+                            price_in_sol = virtual_sol_reserves / virtual_token_reserves
+                            return price_in_sol, virtual_sol_reserves
+                    except:
+                        pass
+                
+                return 0, 0
             
-            if virtual_token_reserves > 0:
-                price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                return price_in_sol, virtual_sol_reserves
-            
-            return 0, 0
         except Exception as e:
-            print(f"Error getting price: {e}")
+            print(f"❌ Error getting price: {e}")
+            import traceback
+            traceback.print_exc()
             return 0, 0
     
     def format_number(self, num):
