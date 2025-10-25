@@ -38,6 +38,9 @@ def start_sniper():
         if take_profit_percent <= 0:
             return jsonify({"error": "Take profit must be positive"}), 400
         
+        # Log to console
+        print(f"🚀 API: Starting bot for {token_address[:8]}...")
+        
         # Start the bot
         result = bot_manager.start_bot(
             token_address=token_address,
@@ -45,17 +48,32 @@ def start_sniper():
             take_profit_percent=take_profit_percent
         )
         
+        print(f"📊 API: Bot start result: {result}")
+        
         if result.get('success'):
             return jsonify({
                 "success": True,
                 "message": "Sniper bot started successfully!",
-                "tx_signature": result.get('tx_signature')
+                "tx_signature": result.get('tx_signature'),
+                "debug_info": result.get('debug_info', '')
             })
         else:
-            return jsonify({"error": result.get('error', 'Unknown error')}), 400
+            error_msg = result.get('error', 'Unknown error')
+            print(f"❌ API: Error - {error_msg}")
+            return jsonify({
+                "error": error_msg,
+                "debug_info": result.get('debug_info', '')
+            }), 400
             
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        error_msg = str(e)
+        print(f"❌ API: Exception - {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": error_msg,
+            "traceback": traceback.format_exc()
+        }), 500
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
