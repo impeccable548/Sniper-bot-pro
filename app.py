@@ -23,10 +23,16 @@ def index():
 def start_sniper():
     """Start the sniper bot"""
     try:
+        print("=" * 60)
+        print("🔥 API START CALLED")
+        print("=" * 60)
+        
         data = request.json
         token_address = data.get('token_address')
         buy_amount = data.get('buy_amount')
         take_profit_percent = data.get('take_profit_percent')
+        
+        print(f"📊 Received: token={token_address}, amount={buy_amount}, tp={take_profit_percent}")
         
         if not token_address or not buy_amount or not take_profit_percent:
             return jsonify({"error": "Missing required fields"}), 400
@@ -38,19 +44,27 @@ def start_sniper():
         if take_profit_percent <= 0:
             return jsonify({"error": "Take profit must be positive"}), 400
         
-        # Log to console
-        print(f"🚀 API: Starting bot for {token_address[:8]}...")
+        print(f"🚀 Calling bot_manager.start_bot()...")
         
-        # Start the bot
-        result = bot_manager.start_bot(
-            token_address=token_address,
-            buy_amount_sol=buy_amount,
-            take_profit_percent=take_profit_percent
-        )
-        
-        print(f"📊 API: Bot start result: {result}")
+        # Start the bot with full error catching
+        try:
+            result = bot_manager.start_bot(
+                token_address=token_address,
+                buy_amount_sol=buy_amount,
+                take_profit_percent=take_profit_percent
+            )
+            print(f"📊 Bot result: {result}")
+        except Exception as bot_error:
+            print(f"❌ Bot start failed with exception: {bot_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "error": f"Bot start exception: {str(bot_error)}",
+                "debug_info": traceback.format_exc()
+            }), 500
         
         if result.get('success'):
+            print(f"✅ Success! Returning response...")
             return jsonify({
                 "success": True,
                 "message": "Sniper bot started successfully!",
@@ -59,7 +73,7 @@ def start_sniper():
             })
         else:
             error_msg = result.get('error', 'Unknown error')
-            print(f"❌ API: Error - {error_msg}")
+            print(f"❌ Bot returned error: {error_msg}")
             return jsonify({
                 "error": error_msg,
                 "debug_info": result.get('debug_info', '')
@@ -67,11 +81,13 @@ def start_sniper():
             
     except Exception as e:
         error_msg = str(e)
-        print(f"❌ API: Exception - {error_msg}")
+        print(f"❌ CRITICAL API ERROR: {error_msg}")
         import traceback
         traceback.print_exc()
+        
+        # Make sure we ALWAYS return valid JSON
         return jsonify({
-            "error": error_msg,
+            "error": f"Critical error: {error_msg}",
             "traceback": traceback.format_exc()
         }), 500
 
