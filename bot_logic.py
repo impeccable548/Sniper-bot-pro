@@ -455,18 +455,19 @@ class BotManager:
         market_cap = self.position.get('position_size', 0) * self.position.get('current_price_usd', 0) * 1000
 
         return {
-            "active": self.active,
-            "entry_price": f"${self.position.get('entry_price_usd', 0):.10f}",
-            "current_price": f"${self.position.get('current_price_usd', 0):.10f}",
-            "price_change_percent": self.position.get('pnl_percent', 0),
-            "pnl_usd": self.position.get('pnl_usd', 0),
-            "pnl_percent": self.position.get('pnl_percent', 0),
-            "position_size": self.position.get('position_size', 0),
-            "position_value": self.position.get('position_value_usd', 0),
-            "tp_target": f"${self.position.get('tp_target_usd', 0):.10f}",
-            "sl_target": f"${self.position.get('sl_target_usd', 0):.10f}",
-            "tp_progress": self.position.get('tp_progress', 0),
-            "bonding_curve_sol": self.position.get('bonding_curve_sol', 0),
-            "market_cap": self.format_number(market_cap),
-            "status": "active sniping" if self.active else "stopped",
-           
+    "active": self.active,
+    "entry_price": f"${self.position.get('entry_price_usd', 0):.10f}",
+    "current_price": f"${self.position.get('current_price_usd', 0):.10f}",
+    "price_change_percent": self.position.get('pnl_percent', 0),
+    "pnl_usd": self.position.get('pnl_usd', 0),
+    "pnl_percent": self.position.get('pnl_percent', 0),
+    "position_size": self.position.get('position_size', 0),
+    "position_value": self.position.get('position_value_usd', 0),
+    "tp_target": f"${self.position.get('tp_target_usd', 0):.10f}",
+    "sl_target": f"${self.position.get('sl_target_usd', 0):.10f}",
+    "tp_progress": self.position.get('tp_progress', 0),
+    "bonding_curve_sol": self.position.get('bonding_curve_sol', 0),
+    "market_cap": self.format_number(market_cap),
+    "status": "active sniping" if self.active else "stopped",
+    "manual_sell_detected": self.position.get('manual_sell_detected', False)
+}
