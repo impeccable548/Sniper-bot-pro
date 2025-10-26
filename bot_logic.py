@@ -1,4 +1,4 @@
-# bot_logic.py - Sniper Pro Bot Trading Logic (Fully Debuggable)
+# bot_logic.py - Sniper Pro Bot Trading Logic (Auto-Detect Bonding Curve)
 import json
 import time
 import threading
@@ -19,7 +19,11 @@ import traceback
 
 # Force all prints to flush immediately
 print = functools.partial(print, flush=True)
-sys.stderr.reconfigure(line_buffering=True)
+try:
+    sys.stderr.reconfigure(line_buffering=True)
+except Exception:
+    # Not all Python runtimes support reconfigure; ignore if unavailable
+    pass
 
 # Setup live logging
 logging.basicConfig(
@@ -119,6 +123,14 @@ class BotManager:
             return 0
 
     def get_token_price(self, bonding_curve):
+        """
+        Auto-detect token price from bonding curve account data.
+
+        Scans the account data in 8-byte aligned chunks, tries multiple decimal pairings,
+        and returns the first realistic (SOL in (0.01, 200) and token > 0) match.
+
+        Returns: (price_in_sol: float, virtual_sol_reserves: float)
+        """
         try:
             response = self.client.get_account_info(Pubkey.from_string(bonding_curve))
             if not response.value:
@@ -129,28 +141,25 @@ class BotManager:
                 return 0, 0
 
             data_raw = response.value.data
-            logger.debug(f"🔍 Data type: {type(data_raw)}")
+            logger.debug(f"🔍 Raw data type: {type(data_raw)}")
 
+            # Convert to raw bytes
             data = None
             try:
                 if hasattr(data_raw, '__iter__') and not isinstance(data_raw, (str, bytes)):
-                    logger.debug("📦 Data is iterable (tuple/list)")
-                    if len(data_raw) > 0:
-                        first_element = data_raw[0]
-                        if isinstance(first_element, str):
-                            data = base64.b64decode(first_element)
-                        elif isinstance(first_element, bytes):
-                            data = first_element
-                        else:
-                            data = base64.b64decode(str(first_element))
+                    # often returned as a tuple/list with base64 string as first element
+                    first = data_raw[0]
+                    if isinstance(first, str):
+                        data = base64.b64decode(first)
+                    elif isinstance(first, bytes):
+                        data = first
+                    else:
+                        data = base64.b64decode(str(first))
                 elif isinstance(data_raw, bytes):
-                    logger.debug("📦 Data is already bytes")
                     data = data_raw
                 elif isinstance(data_raw, str):
-                    logger.debug("📦 Data is string")
                     data = base64.b64decode(data_raw)
                 else:
-                    logger.debug("📦 Unknown data format")
                     data = base64.b64decode(str(data_raw))
 
                 if not data:
@@ -165,39 +174,83 @@ class BotManager:
                 traceback.print_exc()
                 return 0, 0
 
-            if len(data) < 40:
+            if len(data) < 16:
                 logger.error(f"❌ Data too short: {len(data)} bytes")
                 return 0, 0
 
-            offset_attempts = [
-                (16, 24, 8, 16, 9, 6),
-                (8, 16, 16, 24, 9, 6),
-                (24, 32, 32, 40, 9, 6),
-                (32, 40, 40, 48, 9, 6),
-                (40, 48, 48, 56, 9, 6),
-                (16, 24, 8, 16, 9, 9),
-                (8, 16, 16, 24, 9, 9),
+            # Candidate decimal pairs to try (sol_decimals, token_decimals).
+            # Most bonding curves use sol ~ 9 decimals and tokens could be 6, 9, or other.
+            decimal_candidates = [
+                (9, 6),
+                (9, 9),
+                (9, 0),
+                (0, 6),
+                (0, 9)
             ]
 
-            for sol_start, sol_end, token_start, token_end, sol_dec, token_dec in offset_attempts:
-                try:
-                    if len(data) >= max(sol_end, token_end):
-                        virtual_sol_reserves = struct.unpack('<Q', data[sol_start:sol_end])[0] / (10 ** sol_dec)
-                        virtual_token_reserves = struct.unpack('<Q', data[token_start:token_end])[0] / (10 ** token_dec)
+            found_attempts = []
 
-                        logger.debug(f"🧪 Offsets [{sol_start}:{sol_end}] [{token_start}:{token_end}] decimals({sol_dec},{token_dec})")
-                        logger.debug(f"   SOL: {virtual_sol_reserves:.6f}, Token: {virtual_token_reserves:.2f}")
+            # Scan aligned 8-byte windows - try every plausible sol/token pair
+            # We'll step in 8-byte increments to respect 64-bit fields
+            max_index = len(data) - 8
+            for sol_start in range(0, max_index, 8):
+                for token_start in range(0, max_index, 8):
+                    if token_start == sol_start:
+                        continue
+                    # Avoid overlapping identical window checks if you want (not required)
+                    try:
+                        # Unpack raw 8-byte integers (unsigned little-endian)
+                        sol_raw = struct.unpack('<Q', data[sol_start:sol_start+8])[0]
+                        token_raw = struct.unpack('<Q', data[token_start:token_start+8])[0]
+                    except Exception:
+                        continue
 
-                        if 0.01 < virtual_sol_reserves < 200 and virtual_token_reserves > 0:
-                            price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                            logger.info(f"✅ Valid values found! Price: {price_in_sol:.10f} SOL")
-                            return price_in_sol, virtual_sol_reserves
-                        else:
-                            logger.debug(f"   ⚠️ Values don't look right, trying next offset...")
-                except Exception as offset_error:
-                    continue
+                    for sol_dec, token_dec in decimal_candidates:
+                        try:
+                            virtual_sol_reserves = sol_raw / (10 ** sol_dec) if sol_dec >= 0 else float(sol_raw)
+                            virtual_token_reserves = token_raw / (10 ** token_dec) if token_dec >= 0 else float(token_raw)
 
-            logger.error("❌ All offset attempts failed - no valid data found")
+                            # Basic sanity checks
+                            sol_ok = 0.01 < virtual_sol_reserves < 200
+                            token_ok = virtual_token_reserves > 0
+
+                            # Record attempt for debugging
+                            attempt = {
+                                "sol_window": (sol_start, sol_start+8),
+                                "token_window": (token_start, token_start+8),
+                                "sol_dec": sol_dec,
+                                "token_dec": token_dec,
+                                "sol_val": virtual_sol_reserves,
+                                "token_val": virtual_token_reserves,
+                                "sol_ok": sol_ok,
+                                "token_ok": token_ok
+                            }
+                            found_attempts.append(attempt)
+
+                            logger.debug(
+                                f"🧪 Offsets SOL[{sol_start}:{sol_start+8}] TOKEN[{token_start}:{token_start+8}] "
+                                f"decimals({sol_dec},{token_dec}) -> SOL={virtual_sol_reserves:.6f}, TOKEN={virtual_token_reserves:.2f}"
+                            )
+
+                            if sol_ok and token_ok:
+                                price_in_sol = virtual_sol_reserves / virtual_token_reserves
+                                logger.info(
+                                    f"✅ Valid values found at SOL[{sol_start}:{sol_start+8}] TOKEN[{token_start}:{token_start+8}] "
+                                    f"decimals({sol_dec},{token_dec}) -> price: {price_in_sol:.10f} SOL"
+                                )
+                                return price_in_sol, virtual_sol_reserves
+                        except Exception as e:
+                            # Skip any unpack/convert errors for this decimal pair
+                            continue
+
+            # If we reach here, no plausible pair found. Dump summary debug info (first N attempts)
+            logger.error("❌ All scan attempts failed - no valid data found in bonding curve")
+            # Log a short sample of attempts to avoid huge logs
+            sample = found_attempts[:20]
+            for a in sample:
+                logger.debug(f"Attempt sample: sol_win={a['sol_window']} token_win={a['token_window']} "
+                             f"decimals=({a['sol_dec']},{a['token_dec']}) sol={a['sol_val']:.6f} token={a['token_val']:.2f} "
+                             f"valid={a['sol_ok'] and a['token_ok']}")
             return 0, 0
 
         except Exception as e:
@@ -416,8 +469,4 @@ class BotManager:
             "bonding_curve_sol": self.position.get('bonding_curve_sol', 0),
             "market_cap": self.format_number(market_cap),
             "status": "active sniping" if self.active else "stopped",
-            "manual_sell_detected": self.position.get('manual_sell_detected', False)
-        }
-
-    def is_active(self):
-        return self.active
+           
