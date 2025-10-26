@@ -120,17 +120,14 @@ class BotManager:
             # Debug: Print data type
             data_raw = response.value.data
             print(f"🔍 Data type: {type(data_raw)}")
-            print(f"🔍 Data value: {str(data_raw)[:100]}...")
             
             # Handle different data formats
             data = None
             try:
                 if hasattr(data_raw, '__iter__') and not isinstance(data_raw, (str, bytes)):
-                    # It's iterable (tuple or list)
                     print("📦 Data is iterable (tuple/list)")
                     if len(data_raw) > 0:
                         first_element = data_raw[0]
-                        print(f"🔍 First element type: {type(first_element)}")
                         if isinstance(first_element, str):
                             data = base64.b64decode(first_element)
                         elif isinstance(first_element, bytes):
@@ -144,59 +141,61 @@ class BotManager:
                     print("📦 Data is string")
                     data = base64.b64decode(data_raw)
                 else:
-                    print(f"📦 Unknown data format, converting to string")
+                    print(f"📦 Unknown data format")
                     data = base64.b64decode(str(data_raw))
                 
                 if not data:
                     print("❌ Failed to convert data to bytes")
                     return 0, 0
                     
-                print(f"✅ Successfully decoded data: {len(data)} bytes")
+                print(f"✅ Data decoded: {len(data)} bytes")
+                
+                # Print first 100 bytes in hex for debugging
+                hex_preview = data[:100].hex()
+                print(f"🔍 First 100 bytes (hex): {hex_preview}")
                 
             except Exception as decode_error:
                 print(f"❌ Error decoding data: {decode_error}")
-                import traceback
-                traceback.print_exc()
                 return 0, 0
             
-            # Parse Pump.fun bonding curve data
-            if len(data) < 32:
-                print(f"❌ Data too short: {len(data)} bytes (need at least 32)")
+            # Parse bonding curve - try MANY different offset combinations
+            if len(data) < 40:
+                print(f"❌ Data too short: {len(data)} bytes")
                 return 0, 0
             
-            try:
-                # Try multiple offset combinations
-                offset_attempts = [
-                    (16, 24, 8, 16),   # Original
-                    (24, 32, 16, 24),  # Alternative 1
-                    (32, 40, 24, 32),  # Alternative 2
-                ]
-                
-                for sol_start, sol_end, token_start, token_end in offset_attempts:
-                    try:
-                        if len(data) >= sol_end and len(data) >= token_end:
-                            virtual_sol_reserves = struct.unpack('<Q', data[sol_start:sol_end])[0] / 1e9
-                            virtual_token_reserves = struct.unpack('<Q', data[token_start:token_end])[0] / 1e6
-                            
-                            print(f"🧪 Testing offsets [{sol_start}:{sol_end}] and [{token_start}:{token_end}]")
-                            print(f"   SOL: {virtual_sol_reserves:.4f}, Token: {virtual_token_reserves:.2f}")
-                            
-                            if virtual_token_reserves > 0 and virtual_sol_reserves > 0:
-                                price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                                print(f"✅ Price calculated: {price_in_sol:.10f} SOL")
-                                return price_in_sol, virtual_sol_reserves
-                    except Exception as offset_error:
-                        print(f"⚠️ Offset attempt failed: {offset_error}")
-                        continue
-                
-                print("❌ All offset attempts failed")
-                return 0, 0
-                    
-            except Exception as parse_error:
-                print(f"❌ Error parsing structure: {parse_error}")
-                import traceback
-                traceback.print_exc()
-                return 0, 0
+            # Try multiple offset combinations
+            offset_attempts = [
+                # (sol_start, sol_end, token_start, token_end, sol_decimals, token_decimals)
+                (16, 24, 8, 16, 9, 6),    # Original attempt
+                (8, 16, 16, 24, 9, 6),    # Swapped
+                (24, 32, 32, 40, 9, 6),   # Higher offsets
+                (32, 40, 40, 48, 9, 6),   # Even higher
+                (40, 48, 48, 56, 9, 6),   # Higher still
+                (16, 24, 8, 16, 9, 9),    # Different decimals
+                (8, 16, 16, 24, 9, 9),    # Swapped + different decimals
+            ]
+            
+            for sol_start, sol_end, token_start, token_end, sol_dec, token_dec in offset_attempts:
+                try:
+                    if len(data) >= max(sol_end, token_end):
+                        virtual_sol_reserves = struct.unpack('<Q', data[sol_start:sol_end])[0] / (10 ** sol_dec)
+                        virtual_token_reserves = struct.unpack('<Q', data[token_start:token_end])[0] / (10 ** token_dec)
+                        
+                        print(f"🧪 Offsets [{sol_start}:{sol_end}] [{token_start}:{token_end}] decimals({sol_dec},{token_dec})")
+                        print(f"   SOL: {virtual_sol_reserves:.6f}, Token: {virtual_token_reserves:.2f}")
+                        
+                        # Check if values make sense (SOL should be 0.1 to 100, tokens should be > 0)
+                        if 0.01 < virtual_sol_reserves < 200 and virtual_token_reserves > 0:
+                            price_in_sol = virtual_sol_reserves / virtual_token_reserves
+                            print(f"✅ Valid values found! Price: {price_in_sol:.10f} SOL")
+                            return price_in_sol, virtual_sol_reserves
+                        else:
+                            print(f"   ⚠️ Values don't look right, trying next offset...")
+                except Exception as offset_error:
+                    continue
+            
+            print("❌ All offset attempts failed - no valid data found")
+            return 0, 0
             
         except Exception as e:
             print(f"❌ Fatal error getting price: {e}")
