@@ -1,124 +1,122 @@
-# app.py - Sniper Pro Bot Main Flask Application
+# app.py - Sniper Pro Bot — Flask API
 from flask import Flask, render_template, request, jsonify
-from bot_logic import BotManager
+from bot_logic import BotManager, check_honeypot
 import os
 from dotenv import load_dotenv
+import logging
 
 load_dotenv()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
-# Initialize bot manager
 bot_manager = BotManager(
     private_key=os.getenv('PRIVATE_KEY'),
     rpc_url=os.getenv('RPC_URL', 'https://api.mainnet-beta.solana.com')
 )
 
+
 @app.route('/')
 def index():
-    """Serve the main UI"""
     return render_template('index.html')
+
+
+# ── Bot control ───────────────────────────────────────────────────────────────
 
 @app.route('/api/start', methods=['POST'])
 def start_sniper():
-    """Start the sniper bot"""
     try:
-        print("=" * 60)
-        print("🔥 API START CALLED")
-        print("=" * 60)
-        
-        data = request.json
-        token_address = data.get('token_address')
-        buy_amount = data.get('buy_amount')
+        data = request.json or {}
+        token_address       = (data.get('token_address') or '').strip()
+        buy_amount          = data.get('buy_amount')
         take_profit_percent = data.get('take_profit_percent')
-        
-        print(f"📊 Received: token={token_address}, amount={buy_amount}, tp={take_profit_percent}")
-        
-        if not token_address or not buy_amount or not take_profit_percent:
-            return jsonify({"error": "Missing required fields"}), 400
-        
-        # Validate inputs
-        if buy_amount <= 0:
-            return jsonify({"error": "Buy amount must be positive"}), 400
-        
-        if take_profit_percent <= 0:
-            return jsonify({"error": "Take profit must be positive"}), 400
-        
-        print(f"🚀 Calling bot_manager.start_bot()...")
-        
-        # Start the bot with full error catching
-        try:
-            result = bot_manager.start_bot(
-                token_address=token_address,
-                buy_amount_sol=buy_amount,
-                take_profit_percent=take_profit_percent
-            )
-            print(f"📊 Bot result: {result}")
-        except Exception as bot_error:
-            print(f"❌ Bot start failed with exception: {bot_error}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({
-                "error": f"Bot start exception: {str(bot_error)}",
-                "debug_info": traceback.format_exc()
-            }), 500
-        
-        if result.get('success'):
-            print(f"✅ Success! Returning response...")
-            return jsonify({
-                "success": True,
-                "message": "Sniper bot started successfully!",
-                "tx_signature": result.get('tx_signature'),
-                "debug_info": result.get('debug_info', '')
-            })
-        else:
-            error_msg = result.get('error', 'Unknown error')
-            print(f"❌ Bot returned error: {error_msg}")
-            return jsonify({
-                "error": error_msg,
-                "debug_info": result.get('debug_info', '')
-            }), 400
-            
+        stop_loss_percent   = data.get('stop_loss_percent', 20)
+        trailing_stop_pct   = data.get('trailing_stop_percent', 0)
+        slippage            = data.get('slippage', 0.25)
+        priority_fee        = data.get('priority_fee', 5_000_000)
+        skip_safety         = bool(data.get('skip_safety', False))
+
+        if not token_address:
+            return jsonify({"error": "token_address is required"}), 400
+        if not buy_amount or float(buy_amount) <= 0:
+            return jsonify({"error": "buy_amount must be positive"}), 400
+        if not take_profit_percent or float(take_profit_percent) <= 0:
+            return jsonify({"error": "take_profit_percent must be positive"}), 400
+
+        result = bot_manager.start_bot(
+            token_address       = token_address,
+            buy_amount_sol      = float(buy_amount),
+            take_profit_percent = float(take_profit_percent),
+            stop_loss_percent   = float(stop_loss_percent),
+            trailing_stop_percent = float(trailing_stop_pct),
+            slippage            = float(slippage),
+            priority_fee        = float(priority_fee),
+            skip_safety         = skip_safety,
+        )
+        code = 200 if result.get('success') else 400
+        return jsonify(result), code
+
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ CRITICAL API ERROR: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        
-        # Make sure we ALWAYS return valid JSON
-        return jsonify({
-            "error": f"Critical error: {error_msg}",
-            "traceback": traceback.format_exc()
-        }), 500
+        logger.exception("start_sniper error")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/stop', methods=['POST'])
+def stop_position():
+    try:
+        data = request.json or {}
+        token_address = data.get('token_address')
+        if token_address:
+            result = bot_manager.stop_position(token_address)
+        else:
+            result = bot_manager.stop_all()
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("stop_position error")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    """Get current bot status"""
     try:
-        status = bot_manager.get_status()
-        return jsonify(status)
+        return jsonify(bot_manager.get_status())
+    except Exception as e:
+        logger.exception("get_status error")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/position/<token_address>', methods=['GET'])
+def get_position(token_address):
+    try:
+        return jsonify(bot_manager.get_position_status(token_address))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/stop', methods=['POST'])
-def stop_bot():
-    """Stop the bot"""
+
+# ── Safety check ──────────────────────────────────────────────────────────────
+
+@app.route('/api/check', methods=['POST'])
+def safety_check():
     try:
-        bot_manager.stop_bot()
-        return jsonify({
-            "success": True,
-            "message": "Bot stopped successfully"
-        })
+        data = request.json or {}
+        token_address = (data.get('token_address') or '').strip()
+        if not token_address:
+            return jsonify({"error": "token_address required"}), 400
+        result = check_honeypot(token_address)
+        return jsonify(result)
     except Exception as e:
+        logger.exception("safety_check error")
         return jsonify({"error": str(e)}), 500
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.route('/api/health', methods=['GET'])
-def health_check():
-    """Health check endpoint for Render"""
-    return jsonify({
-        "status": "healthy",
-        "bot_active": bot_manager.is_active()
-    })
+def health():
+    return jsonify({"status": "ok", "active_positions": len(bot_manager.positions)})
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))

@@ -1,473 +1,574 @@
-# bot_logic.py - Sniper Pro Bot Trading Logic (Auto-Detect Bonding Curve)
+# bot_logic.py - Sniper Pro Bot — Full Trading Engine
 import json
 import time
 import threading
 import os
+import base64
+import struct
+import logging
+import traceback
+import functools
+import sys
 from datetime import datetime
+
 import requests
+import base58
 from solana.rpc.api import Client
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-import base58
-import base64
-import struct
 from pump_sdk import PumpFunSDK
-import sys
-import functools
-import logging
-import traceback
 
-# Force all prints to flush immediately
+# ── logging ───────────────────────────────────────────────────────────────────
 print = functools.partial(print, flush=True)
 try:
     sys.stderr.reconfigure(line_buffering=True)
 except Exception:
-    # Not all Python runtimes support reconfigure; ignore if unavailable
     pass
 
-# Setup live logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
-POSITION_FILE = 'position.json'
-STOP_LOSS_PERCENT = -20
+POSITIONS_FILE = 'positions.json'
+MAX_LOG_ENTRIES = 200
+
+
+# ── Safety checks ─────────────────────────────────────────────────────────────
+
+def check_honeypot(token_address: str) -> dict:
+    """
+    Run multiple rug/honeypot checks via free public APIs.
+    Returns {"safe": bool, "warnings": [str], "score": int (0-100, 100=safe)}
+    """
+    warnings = []
+    score = 100
+
+    # 1. RugCheck.xyz
+    try:
+        r = requests.get(f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report/summary", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            risks = data.get("risks", [])
+            for risk in risks:
+                name  = risk.get("name", "")
+                level = risk.get("level", "")
+                score_val = risk.get("score", 0)
+                if level in ("danger", "warn"):
+                    warnings.append(f"[RugCheck] {name} ({level})")
+                    score -= score_val if score_val else 20
+    except Exception as e:
+        logger.warning(f"RugCheck API error: {e}")
+
+    # 2. Check token metadata via Pump.fun API
+    try:
+        r = requests.get(f"https://pump.fun/api/token/{token_address}", timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            if not data.get("twitter") and not data.get("telegram") and not data.get("website"):
+                warnings.append("No social links (twitter/telegram/website)")
+                score -= 10
+            dev_hold = data.get("creator_token_holdings_percent", 0)
+            if dev_hold > 20:
+                warnings.append(f"Dev holds {dev_hold:.1f}% of supply")
+                score -= 15
+    except Exception as e:
+        logger.warning(f"Pump.fun metadata check error: {e}")
+
+    # 3. Dexscreener liquidity check
+    try:
+        r = requests.get(f"https://api.dexscreener.com/latest/dex/tokens/{token_address}", timeout=8)
+        if r.status_code == 200:
+            data = r.json()
+            pairs = data.get("pairs") or []
+            if pairs:
+                liq = pairs[0].get("liquidity", {}).get("usd", 0) or 0
+                if liq < 500:
+                    warnings.append(f"Very low liquidity: ${liq:.0f}")
+                    score -= 20
+    except Exception as e:
+        logger.warning(f"DexScreener check error: {e}")
+
+    score = max(0, min(100, score))
+    safe  = score >= 40 and not any("danger" in w.lower() for w in warnings)
+    return {"safe": safe, "warnings": warnings, "score": score}
+
+
+def fetch_sol_price() -> float:
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/simple/price",
+            params={"ids": "solana", "vs_currencies": "usd"},
+            timeout=8
+        )
+        if r.status_code == 200:
+            return float(r.json()["solana"]["usd"])
+    except Exception:
+        pass
+    try:
+        r = requests.get("https://price.jup.ag/v4/price?ids=SOL", timeout=6)
+        if r.status_code == 200:
+            return float(r.json()["data"]["SOL"]["price"])
+    except Exception:
+        pass
+    return 150.0
+
+
+# ── Position data class ───────────────────────────────────────────────────────
+
+class Position:
+    def __init__(self, d: dict):
+        self.__dict__.update(d)
+
+    def to_dict(self) -> dict:
+        return dict(self.__dict__)
+
+
+# ── BotManager ────────────────────────────────────────────────────────────────
 
 class BotManager:
-    def __init__(self, private_key, rpc_url):
+    def __init__(self, private_key: str, rpc_url: str):
         self.private_key = private_key
-        self.rpc_url = rpc_url
-        self.client = Client(rpc_url)
-        self.active = False
-        self.position = None
-        self.monitoring_thread = None
-        self.start_time = None
+        self.rpc_url     = rpc_url
+        self.client      = Client(rpc_url)
 
-        # Initialize wallet
+        self.wallet = None
         if private_key:
-            self.wallet = Keypair.from_bytes(base58.b58decode(private_key))
-        else:
-            self.wallet = None
+            try:
+                self.wallet = Keypair.from_bytes(base58.b58decode(private_key))
+                logger.info(f"Wallet loaded: {self.wallet.pubkey()}")
+            except Exception as e:
+                logger.error(f"Failed to load wallet: {e}")
 
-        # Initialize Pump.fun SDK
         self.pump_sdk = PumpFunSDK(rpc_url, private_key)
 
-        # Load existing position on startup
-        self.load_position()
+        # positions: {token_address: dict}
+        self.positions: dict[str, dict] = {}
+        self._lock = threading.Lock()
 
-    def load_position(self):
-        try:
-            if os.path.exists(POSITION_FILE):
-                with open(POSITION_FILE, 'r') as f:
-                    self.position = json.load(f)
-                    logger.info(f"✅ Loaded existing position: {self.position['token_address'][:8]}...")
-                    if self.position and not self.active:
-                        self.active = True
-                        self.start_monitoring()
-        except Exception as e:
-            logger.error(f"Error loading position: {e}")
-            traceback.print_exc()
+        # activity log visible in UI
+        self.activity_log: list[dict] = []
 
-    def save_position(self):
-        try:
-            if self.position:
-                with open(POSITION_FILE, 'w') as f:
-                    json.dump(self.position, f, indent=2)
-        except Exception as e:
-            logger.error(f"Error saving position: {e}")
-            traceback.print_exc()
+        # monitoring
+        self._monitor_thread = None
+        self._running = False
 
-    def delete_position(self):
-        try:
-            if os.path.exists(POSITION_FILE):
-                os.remove(POSITION_FILE)
-            self.position = None
-        except Exception as e:
-            logger.error(f"Error deleting position: {e}")
-            traceback.print_exc()
+        self._load_positions()
+        self._ensure_monitor_running()
 
-    def get_sol_price(self):
-        try:
-            response = requests.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "solana", "vs_currencies": "usd"},
-                timeout=10
-            )
-            if response.status_code == 200:
-                return response.json()["solana"]["usd"]
-        except Exception as e:
-            logger.warning(f"Error fetching SOL price: {e}")
-        return 150  # Fallback
+    # ── persistence ──────────────────────────────────────────────────────────
 
-    def check_wallet_balance(self, token_mint):
-        try:
-            response = self.client.get_token_accounts_by_owner(
-                self.wallet.pubkey(),
-                {"mint": Pubkey.from_string(token_mint)}
-            )
-            if response.value:
-                for account in response.value:
-                    info = self.client.get_account_info(account.pubkey)
-                    if info.value:
-                        data = base64.b64decode(info.value.data[0])
-                        amount = struct.unpack('<Q', data[64:72])[0]
-                        decimals = data[44]
-                        return amount / (10 ** decimals)
-            return 0
-        except Exception as e:
-            logger.error(f"Error checking balance: {e}")
-            traceback.print_exc()
-            return 0
-
-    def get_token_price(self, bonding_curve):
-        """
-        Auto-detect token price from bonding curve account data.
-
-        Scans the account data in 8-byte aligned chunks, tries multiple decimal pairings,
-        and returns the first realistic (SOL in (0.01, 200) and token > 0) match.
-
-        Returns: (price_in_sol: float, virtual_sol_reserves: float)
-        """
-        try:
-            response = self.client.get_account_info(Pubkey.from_string(bonding_curve))
-            if not response.value:
-                logger.error("❌ No response value from RPC")
-                return 0, 0
-            if not response.value.data:
-                logger.error("❌ No data in response")
-                return 0, 0
-
-            data_raw = response.value.data
-            logger.debug(f"🔍 Raw data type: {type(data_raw)}")
-
-            # Convert to raw bytes
-            data = None
+    def _load_positions(self):
+        if os.path.exists(POSITIONS_FILE):
             try:
-                if hasattr(data_raw, '__iter__') and not isinstance(data_raw, (str, bytes)):
-                    # often returned as a tuple/list with base64 string as first element
-                    first = data_raw[0]
-                    if isinstance(first, str):
-                        data = base64.b64decode(first)
-                    elif isinstance(first, bytes):
-                        data = first
-                    else:
-                        data = base64.b64decode(str(first))
-                elif isinstance(data_raw, bytes):
-                    data = data_raw
-                elif isinstance(data_raw, str):
-                    data = base64.b64decode(data_raw)
-                else:
-                    data = base64.b64decode(str(data_raw))
+                with open(POSITIONS_FILE) as f:
+                    self.positions = json.load(f)
+                logger.info(f"Loaded {len(self.positions)} position(s) from disk")
+            except Exception as e:
+                logger.error(f"Error loading positions: {e}")
 
-                if not data:
-                    logger.error("❌ Failed to convert data to bytes")
-                    return 0, 0
+    def _save_positions(self):
+        try:
+            with open(POSITIONS_FILE, 'w') as f:
+                json.dump(self.positions, f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving positions: {e}")
 
-                logger.debug(f"✅ Data decoded: {len(data)} bytes")
-                logger.debug(f"🔍 First 100 bytes (hex): {data[:100].hex()}")
+    # ── logging ──────────────────────────────────────────────────────────────
 
-            except Exception as decode_error:
-                logger.error(f"❌ Error decoding data: {decode_error}")
-                traceback.print_exc()
+    def _log(self, message: str, level: str = "info"):
+        entry = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "message": message,
+            "level": level
+        }
+        self.activity_log.append(entry)
+        if len(self.activity_log) > MAX_LOG_ENTRIES:
+            self.activity_log.pop(0)
+        getattr(logger, level, logger.info)(message)
+
+    # ── price reading ─────────────────────────────────────────────────────────
+
+    def get_token_price(self, bonding_curve: str):
+        """Returns (price_in_sol, virtual_sol_reserves) or (0, 0) on failure."""
+        try:
+            resp = self.client.get_account_info(Pubkey.from_string(bonding_curve))
+            if not resp.value or not resp.value.data:
                 return 0, 0
+
+            raw = resp.value.data
+            if isinstance(raw, (list, tuple)):
+                first = raw[0]
+                data = base64.b64decode(first) if isinstance(first, str) else bytes(first)
+            elif isinstance(raw, bytes):
+                data = raw
+            else:
+                data = base64.b64decode(str(raw))
 
             if len(data) < 16:
-                logger.error(f"❌ Data too short: {len(data)} bytes")
                 return 0, 0
 
-            # Candidate decimal pairs to try (sol_decimals, token_decimals).
-            # Most bonding curves use sol ~ 9 decimals and tokens could be 6, 9, or other.
-            decimal_candidates = [
-                (9, 6),
-                (9, 9),
-                (9, 0),
-                (0, 6),
-                (0, 9)
-            ]
-
-            found_attempts = []
-
-            # Scan aligned 8-byte windows - try every plausible sol/token pair
-            # We'll step in 8-byte increments to respect 64-bit fields
-            max_index = len(data) - 8
-            for sol_start in range(0, max_index, 8):
-                for token_start in range(0, max_index, 8):
-                    if token_start == sol_start:
+            best = None
+            for s in range(0, len(data) - 8, 8):
+                for t in range(0, len(data) - 8, 8):
+                    if s == t:
                         continue
-                    # Avoid overlapping identical window checks if you want (not required)
                     try:
-                        # Unpack raw 8-byte integers (unsigned little-endian)
-                        sol_raw = struct.unpack('<Q', data[sol_start:sol_start+8])[0]
-                        token_raw = struct.unpack('<Q', data[token_start:token_start+8])[0]
+                        sr = struct.unpack('<Q', data[s:s+8])[0]
+                        tr = struct.unpack('<Q', data[t:t+8])[0]
+                        sv = sr / 1e9
+                        tv = tr / 1e6
+                        if 0.1 < sv < 500 and tv > 0:
+                            p = sv / tv
+                            if best is None or abs(sv - 30) < abs(best[1] - 30):
+                                best = (p, sv)
                     except Exception:
                         continue
 
-                    for sol_dec, token_dec in decimal_candidates:
-                        try:
-                            virtual_sol_reserves = sol_raw / (10 ** sol_dec) if sol_dec >= 0 else float(sol_raw)
-                            virtual_token_reserves = token_raw / (10 ** token_dec) if token_dec >= 0 else float(token_raw)
-
-                            # Basic sanity checks
-                            sol_ok = 0.01 < virtual_sol_reserves < 200
-                            token_ok = virtual_token_reserves > 0
-
-                            # Record attempt for debugging
-                            attempt = {
-                                "sol_window": (sol_start, sol_start+8),
-                                "token_window": (token_start, token_start+8),
-                                "sol_dec": sol_dec,
-                                "token_dec": token_dec,
-                                "sol_val": virtual_sol_reserves,
-                                "token_val": virtual_token_reserves,
-                                "sol_ok": sol_ok,
-                                "token_ok": token_ok
-                            }
-                            found_attempts.append(attempt)
-
-                            logger.debug(
-                                f"🧪 Offsets SOL[{sol_start}:{sol_start+8}] TOKEN[{token_start}:{token_start+8}] "
-                                f"decimals({sol_dec},{token_dec}) -> SOL={virtual_sol_reserves:.6f}, TOKEN={virtual_token_reserves:.2f}"
-                            )
-
-                            if sol_ok and token_ok:
-                                price_in_sol = virtual_sol_reserves / virtual_token_reserves
-                                logger.info(
-                                    f"✅ Valid values found at SOL[{sol_start}:{sol_start+8}] TOKEN[{token_start}:{token_start+8}] "
-                                    f"decimals({sol_dec},{token_dec}) -> price: {price_in_sol:.10f} SOL"
-                                )
-                                return price_in_sol, virtual_sol_reserves
-                        except Exception as e:
-                            # Skip any unpack/convert errors for this decimal pair
-                            continue
-
-            # If we reach here, no plausible pair found. Dump summary debug info (first N attempts)
-            logger.error("❌ All scan attempts failed - no valid data found in bonding curve")
-            # Log a short sample of attempts to avoid huge logs
-            sample = found_attempts[:20]
-            for a in sample:
-                logger.debug(f"Attempt sample: sol_win={a['sol_window']} token_win={a['token_window']} "
-                             f"decimals=({a['sol_dec']},{a['token_dec']}) sol={a['sol_val']:.6f} token={a['token_val']:.2f} "
-                             f"valid={a['sol_ok'] and a['token_ok']}")
-            return 0, 0
-
+            return best if best else (0, 0)
         except Exception as e:
-            logger.error(f"❌ Fatal error getting price: {e}")
-            traceback.print_exc()
+            logger.error(f"get_token_price error: {e}")
             return 0, 0
 
-    def format_number(self, num):
-        if num >= 1_000_000_000:
-            return f"${num/1_000_000_000:.2f}B"
-        elif num >= 1_000_000:
-            return f"${num/1_000_000:.2f}M"
-        elif num >= 1_000:
-            return f"${num/1_000:.2f}K"
-        return f"${num:.2f}"
+    def get_token_balance(self, token_mint: str) -> int:
+        """Returns raw token balance (lamports / base units)."""
+        try:
+            resp = self.client.get_token_accounts_by_owner(
+                self.wallet.pubkey(),
+                {"mint": Pubkey.from_string(token_mint)}
+            )
+            if not resp.value:
+                return 0
+            for acct in resp.value:
+                info = self.client.get_account_info(acct.pubkey)
+                if info.value:
+                    d = info.value.data
+                    raw = base64.b64decode(d[0]) if isinstance(d, (list, tuple)) else d
+                    return struct.unpack('<Q', raw[64:72])[0]
+            return 0
+        except Exception as e:
+            logger.error(f"get_token_balance error: {e}")
+            return 0
 
-    def monitoring_loop(self):
-        logger.info("🔄 Monitoring thread started")
-        while self.active:
-            try:
-                if not self.position:
-                    time.sleep(5)
-                    continue
-
-                current_balance = self.check_wallet_balance(self.position['token_address'])
-                if current_balance == 0 and self.position['position_size'] > 0:
-                    logger.warning("⚠️ Manual sell detected! Stopping bot...")
-                    self.position['manual_sell_detected'] = True
-                    self.save_position()
-                    self.stop_bot()
-                    break
-
-                price_sol, curve_sol = self.get_token_price(self.position['bonding_curve'])
-                if price_sol > 0:
-                    sol_price_usd = self.get_sol_price()
-                    current_price_usd = price_sol * sol_price_usd
-
-                    self.position['current_price_sol'] = price_sol
-                    self.position['current_price_usd'] = current_price_usd
-                    self.position['bonding_curve_sol'] = curve_sol
-                    self.position['last_update'] = datetime.now().isoformat()
-
-                    entry_price = self.position['entry_price_usd']
-                    pnl_percent = ((current_price_usd - entry_price) / entry_price) * 100
-                    self.position['pnl_percent'] = pnl_percent
-
-                    position_value = self.position['position_size'] * current_price_usd
-                    self.position['position_value_usd'] = position_value
-                    self.position['pnl_usd'] = position_value - (self.position['buy_amount_sol'] * sol_price_usd)
-
-                    tp_target = self.position['take_profit_percent']
-                    progress = min((pnl_percent / tp_target) * 100, 100) if tp_target > 0 else 0
-                    self.position['tp_progress'] = max(progress, 0)
-
-                    self.save_position()
-                    logger.info(f"📊 Price: ${current_price_usd:.10f} | P&L: {pnl_percent:+.2f}% | Progress: {progress:.1f}%")
-
-                time.sleep(5)
-
-            except Exception as e:
-                logger.error(f"Monitoring error: {e}")
-                traceback.print_exc()
-                time.sleep(5)
-
-        logger.info("⛔ Monitoring thread stopped")
-
-    def start_monitoring(self):
-        if not self.monitoring_thread or not self.monitoring_thread.is_alive():
-            self.monitoring_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
-            self.monitoring_thread.start()
-
-    def start_bot(self, token_address, buy_amount_sol, take_profit_percent):
-        """Start the sniper bot with full live logging"""
-        debug_log = []
+    def get_sol_balance(self) -> float:
+        """Returns SOL balance of the wallet."""
         try:
             if not self.wallet:
-                error_msg = "Private key not configured"
-                logger.error(f"❌ {error_msg}")
-                return {"success": False, "error": error_msg, "debug_info": "No wallet found"}
+                return 0.0
+            resp = self.client.get_balance(self.wallet.pubkey())
+            return resp.value / 1e9
+        except Exception:
+            return 0.0
 
-            if self.active:
-                error_msg = "Bot already running"
-                logger.warning(f"❌ {error_msg}")
-                return {"success": False, "error": error_msg, "debug_info": "Bot is already active"}
+    # ── safety ───────────────────────────────────────────────────────────────
 
-            logger.info("🚀 Starting Sniper Pro Bot...")
-            logger.info(f"📍 Token: {token_address}")
-            logger.info(f"💰 Amount: {buy_amount_sol} SOL")
-            logger.info(f"🎯 TP: +{take_profit_percent}%")
+    def run_safety_check(self, token_address: str) -> dict:
+        self._log(f"Running safety check on {token_address[:8]}…")
+        result = check_honeypot(token_address)
+        if result["warnings"]:
+            for w in result["warnings"]:
+                self._log(f"⚠ {w}", "warning")
+        self._log(f"Safety score: {result['score']}/100 {'✅ SAFE' if result['safe'] else '⛔ RISKY'}")
+        return result
 
-            bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
-            if not bonding_curve:
-                error_msg = "Failed to derive bonding curve address"
-                logger.error(f"❌ {error_msg}")
-                return {"success": False, "error": error_msg, "debug_info": "\n".join(debug_log)}
+    # ── buy ───────────────────────────────────────────────────────────────────
 
-            logger.info(f"📊 Bonding Curve: {bonding_curve}")
+    def start_bot(self, token_address: str, buy_amount_sol: float,
+                  take_profit_percent: float, stop_loss_percent: float,
+                  trailing_stop_percent: float = 0.0,
+                  slippage: float = 0.25, priority_fee: float = 5_000_000,
+                  skip_safety: bool = False):
 
-            price_sol, curve_sol = self.get_token_price(bonding_curve)
-            logger.info(f"🔍 Price check: {price_sol} SOL, Curve SOL: {curve_sol}")
+        if not self.wallet:
+            return {"success": False, "error": "Private key not configured in environment"}
 
-            if price_sol == 0:
-                error_msg = "Could not fetch token price - token may not be on bonding curve"
-                logger.error(f"❌ {error_msg}")
-                return {"success": False, "error": error_msg, "debug_info": "\n".join(debug_log)}
+        if token_address in self.positions:
+            return {"success": False, "error": "Already tracking this token"}
 
-            sol_price_usd = self.get_sol_price()
-            entry_price_usd = price_sol * sol_price_usd
-            logger.info(f"💲 Entry Price: ${entry_price_usd:.10f} ({price_sol:.10f} SOL)")
+        sol_bal = self.get_sol_balance()
+        if sol_bal < buy_amount_sol + 0.01:
+            return {"success": False, "error": f"Insufficient SOL. Have {sol_bal:.4f}, need {buy_amount_sol+0.01:.4f}"}
 
-            logger.info("🔨 Executing buy transaction...")
-            buy_result = self.pump_sdk.buy_token(
-                token_mint=token_address,
-                bonding_curve=bonding_curve,
-                amount_sol=buy_amount_sol
-            )
+        # Safety check
+        safety = {"safe": True, "warnings": [], "score": 100}
+        if not skip_safety:
+            safety = self.run_safety_check(token_address)
+            if not safety["safe"]:
+                return {
+                    "success": False,
+                    "error": "Safety check failed — token appears risky",
+                    "safety": safety
+                }
 
-            if not buy_result.get('success'):
-                error = buy_result.get('error', 'Buy failed')
-                logger.error(f"❌ Buy failed: {error}")
-                return {"success": False, "error": error, "debug_info": "\n".join(debug_log)}
+        # Derive bonding curve
+        self.pump_sdk.slippage     = slippage
+        self.pump_sdk.priority_fee = int(priority_fee)
+        bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
+        if not bonding_curve:
+            return {"success": False, "error": "Could not derive bonding curve"}
 
-            tx_signature = buy_result.get('signature')
-            tokens_received = buy_result.get('tokens_received', buy_amount_sol / price_sol)
-            logger.info(f"✅ Buy successful! TX: {tx_signature}")
-            logger.info(f"💼 Received: {tokens_received:,.2f} tokens")
+        self._log(f"Bonding curve: {bonding_curve}")
 
-            tp_price_usd = entry_price_usd * (1 + take_profit_percent / 100)
-            sl_price_usd = entry_price_usd * (1 + STOP_LOSS_PERCENT / 100)
+        price_sol, curve_sol = self.get_token_price(bonding_curve)
+        if price_sol == 0:
+            return {"success": False, "error": "Could not read token price (not on bonding curve?)"}
 
-            self.position = {
-                'token_address': token_address,
-                'bonding_curve': bonding_curve,
-                'buy_amount_sol': buy_amount_sol,
-                'entry_price_sol': price_sol,
-                'entry_price_usd': entry_price_usd,
-                'current_price_sol': price_sol,
-                'current_price_usd': entry_price_usd,
-                'position_size': tokens_received,
-                'position_value_usd': tokens_received * entry_price_usd,
-                'take_profit_percent': take_profit_percent,
-                'stop_loss_percent': STOP_LOSS_PERCENT,
-                'tp_target_usd': tp_price_usd,
-                'sl_target_usd': sl_price_usd,
-                'pnl_usd': 0,
-                'pnl_percent': 0,
-                'tp_progress': 0,
-                'bonding_curve_sol': curve_sol,
-                'tx_signature': tx_signature,
-                'start_time': datetime.now().isoformat(),
-                'last_update': datetime.now().isoformat(),
-                'manual_sell_detected': False
-            }
+        sol_usd         = fetch_sol_price()
+        entry_price_usd = price_sol * sol_usd
+        self._log(f"Entry price: ${entry_price_usd:.10f} | SOL: {price_sol:.10f}")
 
-            self.save_position()
-            self.active = True
-            self.start_time = time.time()
-            self.start_monitoring()
-            logger.info("🚀 Sniper Pro Bot is now ACTIVE!")
+        self._log(f"Executing buy: {buy_amount_sol} SOL → {token_address[:8]}…")
+        buy_result = self.pump_sdk.buy_token(token_address, bonding_curve, buy_amount_sol)
+        if not buy_result.get("success"):
+            err = buy_result.get("error", "Buy transaction failed")
+            self._log(f"Buy failed: {err}", "error")
+            return {"success": False, "error": err}
 
-            return {
-                "success": True,
-                "tx_signature": tx_signature,
-                "tokens_received": tokens_received,
-                "entry_price": entry_price_usd,
-                "debug_info": "\n".join(debug_log)
-            }
+        tx_sig = buy_result.get("signature", "")
+        self._log(f"✅ Buy confirmed: {tx_sig[:16]}…")
 
-        except Exception as e:
-            error_msg = f"Error starting bot: {str(e)}"
-            logger.error(f"❌ {error_msg}")
-            traceback.print_exc()
-            return {"success": False, "error": error_msg, "debug_info": "\n".join(debug_log)}
+        # read actual on-chain balance
+        time.sleep(3)
+        raw_balance = self.get_token_balance(token_address)
+        decimals    = 6
+        tokens_recv = raw_balance / (10 ** decimals) if raw_balance > 0 else buy_amount_sol / price_sol
 
-    def stop_bot(self):
-        logger.info("⛔ Stopping bot...")
-        self.active = False
-        if self.monitoring_thread:
-            self.monitoring_thread.join(timeout=2)
+        tp_price = entry_price_usd * (1 + take_profit_percent / 100)
+        sl_price = entry_price_usd * (1 - abs(stop_loss_percent) / 100)
 
-    def get_status(self):
-        if not self.position:
-            return {
-                "active": False,
-                "entry_price": "$0.00000000",
-                "current_price": "$0.00000000",
-                "price_change_percent": 0,
-                "pnl_usd": 0,
-                "pnl_percent": 0,
-                "position_size": 0,
-                "position_value": 0,
-                "tp_target": "$0.00000000",
-                "sl_target": "$0.00000000",
-                "tp_progress": 0,
-                "bonding_curve_sol": 0,
-                "market_cap": "$0",
-                "status": "ready",
-                "manual_sell_detected": False
-            }
+        pos = {
+            "token_address":      token_address,
+            "bonding_curve":      bonding_curve,
+            "buy_amount_sol":     buy_amount_sol,
+            "entry_price_sol":    price_sol,
+            "entry_price_usd":    entry_price_usd,
+            "current_price_usd":  entry_price_usd,
+            "position_size_raw":  raw_balance,
+            "position_size":      tokens_recv,
+            "take_profit_pct":    take_profit_percent,
+            "stop_loss_pct":      abs(stop_loss_percent),
+            "trailing_stop_pct":  trailing_stop_percent,
+            "tp_target_usd":      tp_price,
+            "sl_target_usd":      sl_price,
+            "highest_price_usd":  entry_price_usd,
+            "pnl_usd":            0.0,
+            "pnl_percent":        0.0,
+            "tp_progress":        0.0,
+            "bonding_curve_sol":  curve_sol,
+            "tx_signature":       tx_sig,
+            "start_time":         datetime.now().isoformat(),
+            "last_update":        datetime.now().isoformat(),
+            "status":             "active",
+            "safety_score":       safety.get("score", 100),
+            "safety_warnings":    safety.get("warnings", []),
+            "slippage":           slippage,
+            "priority_fee":       int(priority_fee),
+        }
 
-        sol_price = self.get_sol_price()
-        market_cap = self.position.get('position_size', 0) * self.position.get('current_price_usd', 0) * 1000
+        with self._lock:
+            self.positions[token_address] = pos
+            self._save_positions()
+
+        self._ensure_monitor_running()
+        self._log(f"🚀 Position opened: {tokens_recv:,.2f} tokens @ ${entry_price_usd:.10f}")
 
         return {
-    "active": self.active,
-    "entry_price": f"${self.position.get('entry_price_usd', 0):.10f}",
-    "current_price": f"${self.position.get('current_price_usd', 0):.10f}",
-    "price_change_percent": self.position.get('pnl_percent', 0),
-    "pnl_usd": self.position.get('pnl_usd', 0),
-    "pnl_percent": self.position.get('pnl_percent', 0),
-    "position_size": self.position.get('position_size', 0),
-    "position_value": self.position.get('position_value_usd', 0),
-    "tp_target": f"${self.position.get('tp_target_usd', 0):.10f}",
-    "sl_target": f"${self.position.get('sl_target_usd', 0):.10f}",
-    "tp_progress": self.position.get('tp_progress', 0),
-    "bonding_curve_sol": self.position.get('bonding_curve_sol', 0),
-    "market_cap": self.format_number(market_cap),
-    "status": "active sniping" if self.active else "stopped",
-    "manual_sell_detected": self.position.get('manual_sell_detected', False)
-}
+            "success": True,
+            "tx_signature": tx_sig,
+            "tokens_received": tokens_recv,
+            "entry_price_usd": entry_price_usd,
+            "tp_target_usd": tp_price,
+            "sl_target_usd": sl_price,
+            "safety": safety,
+        }
+
+    # ── sell ──────────────────────────────────────────────────────────────────
+
+    def _execute_sell(self, token_address: str, reason: str):
+        """Execute a sell for a position and clean it up."""
+        with self._lock:
+            pos = self.positions.get(token_address)
+        if not pos:
+            return
+
+        self._log(f"Selling {token_address[:8]}… Reason: {reason}", "warning")
+
+        raw = self.get_token_balance(token_address)
+        if raw == 0:
+            self._log("Balance is 0, skipping sell (already sold?)", "warning")
+            with self._lock:
+                self.positions.pop(token_address, None)
+                self._save_positions()
+            return
+
+        bc = pos["bonding_curve"]
+        sl = pos.get("slippage", 0.25)
+        pf = pos.get("priority_fee", 5_000_000)
+        self.pump_sdk.slippage     = sl
+        self.pump_sdk.priority_fee = int(pf)
+
+        result = self.pump_sdk.sell_token(token_address, bc, raw)
+
+        if result.get("success"):
+            sig = result.get("signature", "")
+            self._log(f"✅ Sell confirmed [{reason}]: {sig[:16]}…")
+        else:
+            err = result.get("error", "unknown")
+            self._log(f"⛔ Sell failed [{reason}]: {err}", "error")
+
+        with self._lock:
+            self.positions.pop(token_address, None)
+            self._save_positions()
+
+    def stop_position(self, token_address: str):
+        """Manually stop and sell a specific position."""
+        if token_address not in self.positions:
+            return {"success": False, "error": "Position not found"}
+        threading.Thread(target=self._execute_sell, args=(token_address, "Manual"), daemon=True).start()
+        return {"success": True, "message": "Sell order submitted"}
+
+    def stop_all(self):
+        """Stop all active positions."""
+        tokens = list(self.positions.keys())
+        for t in tokens:
+            self._execute_sell(t, "Manual stop-all")
+        return {"success": True, "stopped": len(tokens)}
+
+    # ── monitoring loop ───────────────────────────────────────────────────────
+
+    def _ensure_monitor_running(self):
+        if not self._monitor_thread or not self._monitor_thread.is_alive():
+            self._running = True
+            self._monitor_thread = threading.Thread(
+                target=self._monitor_loop, daemon=True, name="monitor"
+            )
+            self._monitor_thread.start()
+
+    def _monitor_loop(self):
+        logger.info("Monitor thread started")
+        sol_price_cache = {"price": 150.0, "ts": 0}
+
+        while self._running:
+            try:
+                if not self.positions:
+                    time.sleep(3)
+                    continue
+
+                # Refresh SOL price every 60 s
+                if time.time() - sol_price_cache["ts"] > 60:
+                    sol_price_cache["price"] = fetch_sol_price()
+                    sol_price_cache["ts"]    = time.time()
+                sol_usd = sol_price_cache["price"]
+
+                to_sell = []
+
+                with self._lock:
+                    tokens = list(self.positions.keys())
+
+                for token_address in tokens:
+                    with self._lock:
+                        pos = self.positions.get(token_address)
+                    if not pos or pos.get("status") != "active":
+                        continue
+
+                    price_sol, curve_sol = self.get_token_price(pos["bonding_curve"])
+                    if price_sol == 0:
+                        continue
+
+                    current_usd = price_sol * sol_usd
+                    entry_usd   = pos["entry_price_usd"]
+                    pnl_pct     = (current_usd - entry_usd) / entry_usd * 100
+                    pnl_usd     = (current_usd - entry_usd) * pos["position_size"]
+
+                    # Update trailing stop
+                    highest = max(pos.get("highest_price_usd", entry_usd), current_usd)
+                    tp_target = pos["tp_target_usd"]
+                    sl_target = pos["sl_target_usd"]
+
+                    trailing_pct = pos.get("trailing_stop_pct", 0)
+                    if trailing_pct > 0 and current_usd > entry_usd:
+                        # dynamic SL rises with price
+                        trailing_sl = highest * (1 - trailing_pct / 100)
+                        if trailing_sl > sl_target:
+                            sl_target = trailing_sl
+                            pos["sl_target_usd"] = sl_target
+                            self._log(f"Trailing SL updated → ${sl_target:.10f}")
+
+                    position_value = pos["position_size"] * current_usd
+                    tp_progress = max(0, min(100, (pnl_pct / pos["take_profit_pct"]) * 100)) if pos["take_profit_pct"] > 0 else 0
+
+                    with self._lock:
+                        pos.update({
+                            "current_price_usd":  current_usd,
+                            "bonding_curve_sol":  curve_sol,
+                            "pnl_usd":            pnl_usd,
+                            "pnl_percent":        pnl_pct,
+                            "tp_progress":        tp_progress,
+                            "position_value_usd": position_value,
+                            "highest_price_usd":  highest,
+                            "sl_target_usd":      sl_target,
+                            "last_update":        datetime.now().isoformat(),
+                        })
+                        self._save_positions()
+
+                    logger.info(
+                        f"[{token_address[:8]}] ${current_usd:.10f} | "
+                        f"PnL {pnl_pct:+.2f}% | TP@{tp_target:.10f} SL@{sl_target:.10f}"
+                    )
+
+                    # Trigger TP
+                    if current_usd >= tp_target:
+                        self._log(f"🎯 TAKE PROFIT hit @ ${current_usd:.10f} (+{pnl_pct:.2f}%)")
+                        to_sell.append((token_address, "Take Profit"))
+
+                    # Trigger SL
+                    elif current_usd <= sl_target:
+                        self._log(f"🛑 STOP LOSS hit @ ${current_usd:.10f} ({pnl_pct:.2f}%)", "warning")
+                        to_sell.append((token_address, "Stop Loss"))
+
+                for token_address, reason in to_sell:
+                    with self._lock:
+                        if token_address in self.positions:
+                            self.positions[token_address]["status"] = "selling"
+                    self._execute_sell(token_address, reason)
+
+                time.sleep(4)
+
+            except Exception as e:
+                logger.error(f"Monitor loop error: {e}", exc_info=True)
+                time.sleep(5)
+
+        logger.info("Monitor thread stopped")
+
+    # ── status ────────────────────────────────────────────────────────────────
+
+    def is_active(self) -> bool:
+        return bool(self.positions)
+
+    def get_status(self) -> dict:
+        with self._lock:
+            positions_list = [dict(p) for p in self.positions.values()]
+
+        sol_bal = self.get_sol_balance()
+        total_pnl = sum(p.get("pnl_usd", 0) for p in positions_list)
+        total_val = sum(p.get("position_value_usd", 0) for p in positions_list)
+
+        return {
+            "active":         bool(positions_list),
+            "positions":      positions_list,
+            "position_count": len(positions_list),
+            "total_pnl_usd":  total_pnl,
+            "total_value_usd":total_val,
+            "sol_balance":    sol_bal,
+            "wallet_address": str(self.wallet.pubkey()) if self.wallet else None,
+            "activity_log":   self.activity_log[-50:],
+        }
+
+    def get_position_status(self, token_address: str) -> dict:
+        with self._lock:
+            pos = self.positions.get(token_address)
+        if not pos:
+            return {"error": "Position not found"}
+        return dict(pos)

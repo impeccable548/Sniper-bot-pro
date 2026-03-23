@@ -1,547 +1,864 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎯 Sniper Pro Bot</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #fff;
-            padding: 20px;
-        }
-        .container { max-width: 1600px; margin: 0 auto; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .logo {
-            font-size: 3.5em;
-            font-weight: 900;
-            background: linear-gradient(135deg, #fff 0%, #14F195 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 5px;
-        }
-        .subtitle { font-size: 1.2em; opacity: 0.9; font-weight: 300; }
-        .main-grid {
-            display: grid;
-            grid-template-columns: 400px 1fr;
-            gap: 25px;
-            margin-bottom: 25px;
-        }
-        @media (max-width: 1200px) { .main-grid { grid-template-columns: 1fr; } }
-        .card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(20px);
-            border-radius: 20px;
-            padding: 25px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        }
-        .card-title {
-            font-size: 1.3em;
-            font-weight: 700;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .form-group { margin-bottom: 18px; }
-        .form-label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.9em;
-            font-weight: 600;
-            opacity: 0.9;
-        }
-        .form-input {
-            width: 100%;
-            padding: 14px;
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
-            color: #fff;
-            font-size: 0.95em;
-            transition: all 0.3s ease;
-            font-family: 'Monaco', monospace;
-        }
-        .form-input:focus {
-            outline: none;
-            background: rgba(255, 255, 255, 0.2);
-            border-color: #14F195;
-            box-shadow: 0 0 0 4px rgba(20, 241, 149, 0.2);
-        }
-        .form-input::placeholder { color: rgba(255, 255, 255, 0.4); }
-        .btn {
-            width: 100%;
-            padding: 16px;
-            border: none;
-            border-radius: 12px;
-            font-size: 1.05em;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            margin-bottom: 10px;
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #14F195 0%, #00D4FF 100%);
-            color: #000;
-        }
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(20, 241, 149, 0.4);
-        }
-        .btn-danger {
-            background: linear-gradient(135deg, #ff4757 0%, #ff6348 100%);
-            color: #fff;
-        }
-        .btn-danger:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(255, 71, 87, 0.4);
-        }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .auto-settings {
-            background: rgba(255, 255, 255, 0.08);
-            padding: 15px;
-            border-radius: 12px;
-            font-size: 0.85em;
-            margin-top: 15px;
-        }
-        .auto-settings-title { font-weight: 700; margin-bottom: 8px; }
-        .auto-settings-item { padding: 5px 0; opacity: 0.8; }
-        .analytics-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        @media (max-width: 900px) { .analytics-grid { grid-template-columns: repeat(2, 1fr); } }
-        .stat-card {
-            background: rgba(255, 255, 255, 0.08);
-            padding: 20px;
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.3s ease;
-        }
-        .stat-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(20, 241, 149, 0.3);
-        }
-        .stat-icon { font-size: 2em; margin-bottom: 8px; }
-        .stat-label { font-size: 0.85em; opacity: 0.7; margin-bottom: 5px; }
-        .stat-value {
-            font-size: 1.8em;
-            font-weight: 700;
-            font-family: 'Monaco', monospace;
-        }
-        .stat-subvalue { font-size: 0.85em; opacity: 0.6; margin-top: 5px; }
-        .positive { color: #14F195; }
-        .negative { color: #ff4757; }
-        .progress-bar {
-            width: 100%;
-            height: 35px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 20px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #14F195 0%, #00D4FF 100%);
-            transition: width 0.5s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 0.9em;
-        }
-        .status-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            background: rgba(20, 241, 149, 0.2);
-            border: 1px solid rgba(20, 241, 149, 0.4);
-            border-radius: 20px;
-            font-size: 0.85em;
-            font-weight: 700;
-        }
-        .status-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #14F195;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.2); }
-        }
-        .log-container {
-            background: rgba(0, 0, 0, 0.3);
-            border-radius: 16px;
-            padding: 20px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: 'Monaco', monospace;
-            font-size: 0.85em;
-        }
-        .log-entry {
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        .log-entry:last-child { border-bottom: none; }
-        .log-time { opacity: 0.5; margin-right: 10px; }
-        .targets-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        .target-card {
-            background: rgba(255, 255, 255, 0.08);
-            padding: 15px;
-            border-radius: 12px;
-            text-align: center;
-        }
-        .error-message {
-            background: rgba(255, 71, 87, 0.2);
-            border: 1px solid rgba(255, 71, 87, 0.4);
-            color: #fff;
-            padding: 15px;
-            border-radius: 12px;
-            margin-bottom: 15px;
-            display: none;
-        }
-        .error-message.active { display: block; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sniper Pro — Solana Memecoin Bot</title>
+<style>
+:root {
+  --bg:       #0a0b0e;
+  --bg2:      #10131a;
+  --bg3:      #161b26;
+  --border:   #1e2535;
+  --green:    #00f5a0;
+  --green2:   #00c97d;
+  --red:      #ff3d5a;
+  --yellow:   #ffc857;
+  --blue:     #4d9fff;
+  --purple:   #9d5cff;
+  --text:     #e2e8f0;
+  --muted:    #64748b;
+  --radius:   12px;
+  --shadow:   0 4px 24px rgba(0,0,0,0.4);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── HEADER ── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.logo {
+  font-size: 1.3em; font-weight: 800; letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--green) 0%, var(--blue) 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.header-stats { display: flex; gap: 24px; align-items: center; }
+.hstat { display: flex; flex-direction: column; align-items: flex-end; }
+.hstat-label { font-size: 0.72em; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.hstat-val   { font-size: 1em; font-weight: 700; font-family: 'Monaco', monospace; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.green { background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+
+/* ── LAYOUT ── */
+.layout {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 0;
+  height: calc(100vh - 53px);
+}
+.sidebar {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 20px 16px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.main {
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.main-top {
+  flex: 1; overflow-y: auto; padding: 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.main-log {
+  height: 200px; min-height: 200px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  display: flex; flex-direction: column;
+}
+
+/* ── CARDS ── */
+.card {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card-title {
+  font-size: .78em; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .7px;
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.card-title span { font-size: 1.1em; }
+
+/* ── FORM ── */
+.form-row { margin-bottom: 12px; }
+.form-label {
+  display: flex; justify-content: space-between;
+  font-size: .8em; color: var(--muted); margin-bottom: 5px; font-weight: 500;
+}
+.form-label b { color: var(--green); font-family: 'Monaco', monospace; font-size:.95em; }
+.form-input {
+  width: 100%; padding: 10px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: .9em;
+  font-family: 'Monaco', monospace;
+  transition: border-color .2s, box-shadow .2s;
+}
+.form-input:focus {
+  outline: none;
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px rgba(0,245,160,.1);
+}
+.form-input::placeholder { color: var(--muted); }
+
+.input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── BUTTONS ── */
+.btn {
+  padding: 11px 16px; border: none; border-radius: 8px;
+  font-size: .88em; font-weight: 700; cursor: pointer;
+  transition: all .2s; width: 100%; letter-spacing: .3px;
+}
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-green {
+  background: linear-gradient(135deg, var(--green) 0%, var(--green2) 100%);
+  color: #000;
+}
+.btn-green:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,245,160,.3); }
+.btn-red { background: linear-gradient(135deg, var(--red) 0%, #c0392b 100%); color: #fff; }
+.btn-red:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255,61,90,.3); }
+.btn-blue { background: linear-gradient(135deg, var(--blue) 0%, var(--purple) 100%); color: #fff; }
+.btn-blue:hover:not(:disabled) { transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: .82em;
+  padding: 8px 12px;
+  width: auto;
+}
+.btn-ghost:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.btn-row { display: flex; gap: 8px; margin-top: 4px; }
+.btn-row .btn { flex: 1; }
+
+/* ── SAFETY BADGE ── */
+.safety-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: .82em; font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  display: none;
+}
+.safety-bar.safe   { border-color: var(--green); color: var(--green); display: flex; }
+.safety-bar.risky  { border-color: var(--red);   color: var(--red);   display: flex; }
+.safety-bar.warn   { border-color: var(--yellow); color: var(--yellow); display: flex; }
+.safety-score {
+  margin-left: auto; font-family: 'Monaco', monospace; font-size: 1.1em;
+}
+
+/* ── STAT GRID ── */
+.stat-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+}
+.stat-grid-2 { grid-template-columns: repeat(2, 1fr); }
+.stat-box {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.stat-label { font-size: .72em; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.stat-val {
+  font-size: 1.25em; font-weight: 700;
+  font-family: 'Monaco', monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.stat-sub { font-size: .75em; color: var(--muted); margin-top: 2px; font-family: 'Monaco', monospace; }
+.green { color: var(--green); }
+.red   { color: var(--red); }
+.yellow{ color: var(--yellow); }
+.blue  { color: var(--blue); }
+
+/* ── POSITIONS ── */
+.positions-list { display: flex; flex-direction: column; gap: 12px; }
+.position-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+}
+.position-card::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--green);
+}
+.position-card.loss::before { background: var(--red); }
+.position-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+.position-token { font-family: 'Monaco', monospace; font-size: .85em; color: var(--muted); }
+.position-pnl { font-weight: 700; font-size: 1.05em; font-family: 'Monaco', monospace; }
+.position-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  margin-bottom: 12px;
+}
+.position-stat .label { font-size: .7em; color: var(--muted); }
+.position-stat .val   { font-size: .85em; font-family: 'Monaco', monospace; font-weight: 600; }
+
+/* ── PROGRESS ── */
+.progress-wrap { margin-bottom: 10px; }
+.progress-label { display: flex; justify-content: space-between; font-size: .72em; color: var(--muted); margin-bottom: 4px; }
+.progress-track {
+  width: 100%; height: 6px; background: var(--bg);
+  border-radius: 3px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--green) 0%, var(--blue) 100%);
+  border-radius: 3px;
+  transition: width .5s ease;
+}
+.progress-fill.sl { background: linear-gradient(90deg, var(--red) 0%, var(--yellow) 100%); }
+
+/* ── TARGETS ── */
+.targets-row { display: flex; gap: 8px; }
+.target-pill {
+  flex: 1; padding: 6px 10px; border-radius: 6px; text-align: center;
+  font-size: .78em; font-family: 'Monaco', monospace;
+}
+.target-pill.tp { background: rgba(0,245,160,.1); border: 1px solid rgba(0,245,160,.25); color: var(--green); }
+.target-pill.sl { background: rgba(255,61,90,.1);  border: 1px solid rgba(255,61,90,.25);  color: var(--red); }
+.target-pill.ts { background: rgba(255,200,87,.1); border: 1px solid rgba(255,200,87,.25); color: var(--yellow); }
+.target-pill-label { font-size: .85em; opacity: .7; }
+.target-pill-val   { font-weight: 700; margin-top: 2px; }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px 20px; color: var(--muted); gap: 12px;
+}
+.empty-state .icon { font-size: 3em; }
+.empty-state p { font-size: .85em; text-align: center; line-height: 1.6; }
+
+/* ── LOG ── */
+.log-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: .75em; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+}
+.log-body {
+  flex: 1; overflow-y: auto;
+  padding: 8px 16px;
+  font-family: 'Monaco', monospace; font-size: .78em;
+}
+.log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.03); line-height: 1.6; }
+.log-time { color: var(--muted); margin-right: 8px; }
+.log-entry.error   .log-msg { color: var(--red); }
+.log-entry.warning .log-msg { color: var(--yellow); }
+.log-entry.info    .log-msg { color: var(--text); }
+
+/* ── SETTINGS ACCORDION ── */
+.accordion-toggle {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; padding: 4px 0; margin-bottom: 0;
+  user-select: none;
+}
+.accordion-toggle:hover { color: var(--green); }
+.chevron { transition: transform .2s; }
+.chevron.open { transform: rotate(180deg); }
+.accordion-body { overflow: hidden; max-height: 0; transition: max-height .3s ease; }
+.accordion-body.open { max-height: 400px; }
+
+/* ── TABS ── */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab {
+  padding: 8px 16px; font-size: .82em; font-weight: 600; cursor: pointer;
+  color: var(--muted); border-bottom: 2px solid transparent; transition: all .2s;
+}
+.tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+/* ── BADGE ── */
+.badge {
+  display: inline-block; padding: 2px 7px; border-radius: 4px;
+  font-size: .72em; font-weight: 700; text-transform: uppercase; letter-spacing: .4px;
+}
+.badge-green { background: rgba(0,245,160,.15); color: var(--green); }
+.badge-red   { background: rgba(255,61,90,.15);  color: var(--red); }
+.badge-yellow{ background: rgba(255,200,87,.15); color: var(--yellow); }
+
+/* ── TOAST ── */
+.toast-area { position: fixed; bottom: 24px; right: 24px; z-index: 999; display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  padding: 12px 18px; border-radius: 10px;
+  font-size: .85em; font-weight: 600;
+  animation: slideIn .3s ease;
+  max-width: 320px;
+  box-shadow: var(--shadow);
+}
+.toast.success { background: rgba(0,245,160,.15); border: 1px solid rgba(0,245,160,.3); color: var(--green); }
+.toast.error   { background: rgba(255,61,90,.15);  border: 1px solid rgba(255,61,90,.3);  color: var(--red); }
+.toast.info    { background: rgba(77,159,255,.15); border: 1px solid rgba(77,159,255,.3); color: var(--blue); }
+@keyframes slideIn { from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* ── SPINNER ── */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,.15);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; height: auto; }
+  .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  .stat-grid { grid-template-columns: repeat(2,1fr); }
+}
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">🎯 SNIPER PRO BOT</div>
-            <div class="subtitle">Lightning Fast Pump.fun Sniper</div>
+
+<!-- HEADER -->
+<div class="header">
+  <div class="logo">⚡ SNIPER PRO</div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="hstat-label">SOL Balance</div>
+      <div class="hstat-val blue" id="hSolBal">—</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-label">Positions</div>
+      <div class="hstat-val" id="hPositions">0</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-label">Total P&L</div>
+      <div class="hstat-val" id="hTotalPnl">$0.00</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <div class="dot green" id="connDot"></div>
+      <span style="font-size:.78em;color:var(--muted)" id="connLabel">LIVE</span>
+    </div>
+  </div>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <!-- SIDEBAR: Controls -->
+  <div class="sidebar">
+
+    <!-- Token input + check -->
+    <div class="card">
+      <div class="card-title"><span>🎯</span> Snipe Token</div>
+
+      <div class="form-row">
+        <div class="form-label">Token Address / Mint</div>
+        <input type="text" class="form-input" id="tokenAddress" placeholder="Pump.fun mint address…">
+      </div>
+
+      <div id="safetyBar" class="safety-bar" style="margin-bottom:10px;"></div>
+
+      <button class="btn btn-ghost" id="checkBtn" style="margin-bottom:12px;width:100%">
+        🔍 Run Safety Check
+      </button>
+
+      <div class="input-row">
+        <div class="form-row" style="margin:0">
+          <div class="form-label">Buy Amount (SOL)</div>
+          <input type="number" class="form-input" id="buyAmount" placeholder="0.1" step="0.01" min="0.001">
         </div>
-
-        <div class="main-grid">
-            <div class="card">
-                <div class="card-title">📝 Sniper Config</div>
-                <div class="error-message" id="errorMessage"></div>
-
-                <form id="sniperForm">
-                    <div class="form-group">
-                        <label class="form-label">🪙 Token Address</label>
-                        <input type="text" class="form-input" id="tokenAddress" 
-                               placeholder="Enter Pump.fun token mint" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">💰 Buy Amount (SOL)</label>
-                        <input type="number" class="form-input" id="buyAmount" 
-                               placeholder="0.1" step="0.01" min="0.01" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">🎯 Take Profit %</label>
-                        <input type="number" class="form-input" id="takeProfitPercent" 
-                               placeholder="50" step="1" min="1" required>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary" id="startBtn">
-                        🚀 START SNIPER
-                    </button>
-                    <button type="button" class="btn btn-danger" id="stopBtn" disabled>
-                        ⛔ STOP BOT
-                    </button>
-                </form>
-
-                <div class="auto-settings">
-                    <div class="auto-settings-title">⚙️ Auto Settings:</div>
-                    <div class="auto-settings-item">• SL: -20% (Fixed)</div>
-                    <div class="auto-settings-item">• Slippage: 50%</div>
-                    <div class="auto-settings-item">• Priority: 0.005 SOL</div>
-                </div>
-
-                <div style="margin-top: 15px; text-align: center; font-size: 0.85em;">
-                    🕐 Last Update: <span id="lastUpdate">Never</span>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">
-                    📊 Live Analytics
-                    <span class="status-indicator" id="statusIndicator" style="margin-left: auto; font-size: 0.75em;">
-                        <span class="status-dot"></span>
-                        READY
-                    </span>
-                </div>
-
-                <div class="analytics-grid">
-                    <div class="stat-card">
-                        <div class="stat-icon">💰</div>
-                        <div class="stat-label">Entry Price</div>
-                        <div class="stat-value" id="entryPrice">$0.00000000</div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon">📈</div>
-                        <div class="stat-label">Current Price</div>
-                        <div class="stat-value" id="currentPrice">$0.00000000</div>
-                        <div class="stat-subvalue" id="priceChange">+0.00%</div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon">🎯</div>
-                        <div class="stat-label">P&L</div>
-                        <div class="stat-value" id="pnlValue">$0.00</div>
-                        <div class="stat-subvalue" id="pnlPercent">(0.00%)</div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon">💼</div>
-                        <div class="stat-label">Position Size</div>
-                        <div class="stat-value" id="positionSize">0</div>
-                        <div class="stat-subvalue">tokens</div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon">💵</div>
-                        <div class="stat-label">Position Value</div>
-                        <div class="stat-value" id="positionValue">$0.00</div>
-                    </div>
-
-                    <div class="stat-card">
-                        <div class="stat-icon">⏱️</div>
-                        <div class="stat-label">Runtime</div>
-                        <div class="stat-value" id="runtime">00:00:00</div>
-                    </div>
-                </div>
-
-                <div class="targets-grid">
-                    <div class="target-card">
-                        <div class="stat-label">🎯 TP Target</div>
-                        <div class="stat-value positive" id="tpTarget" style="font-size: 1.3em;">$0.00000000</div>
-                    </div>
-                    <div class="target-card">
-                        <div class="stat-label">🛑 SL Target</div>
-                        <div class="stat-value negative" id="slTarget" style="font-size: 1.3em;">$0.00000000</div>
-                    </div>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <div class="stat-label">Progress to TP:</div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill" style="width: 0%;">0%</div>
-                    </div>
-                </div>
-
-                <div class="analytics-grid" style="grid-template-columns: repeat(2, 1fr);">
-                    <div class="stat-card">
-                        <div class="stat-icon">🏦</div>
-                        <div class="stat-label">Bonding Curve</div>
-                        <div class="stat-value" id="bondingCurve" style="font-size: 1.3em;">0 SOL</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-icon">📊</div>
-                        <div class="stat-label">Market Cap</div>
-                        <div class="stat-value" id="marketCap" style="font-size: 1.3em;">$0</div>
-                    </div>
-                </div>
-            </div>
+        <div class="form-row" style="margin:0">
+          <div class="form-label">Take Profit %</div>
+          <input type="number" class="form-input" id="takeProfitPct" placeholder="50" step="1" min="1">
         </div>
-
-        <div class="card">
-            <div class="card-title">📋 Transaction Log</div>
-            <div class="log-container" id="logContainer">
-                <div class="log-entry">
-                    <span class="log-time">--:--:--</span>
-                    <span>✅ Sniper Pro Bot initialized and ready</span>
-                </div>
-            </div>
+      </div>
+      <div class="input-row" style="margin-top:8px">
+        <div class="form-row" style="margin:0">
+          <div class="form-label">Stop Loss %</div>
+          <input type="number" class="form-input" id="stopLossPct" placeholder="20" step="1" min="1" value="20">
         </div>
+        <div class="form-row" style="margin:0">
+          <div class="form-label">Trailing Stop %</div>
+          <input type="number" class="form-input" id="trailingStopPct" placeholder="0 = off" step="1" min="0" value="0">
+        </div>
+      </div>
+
+      <!-- Advanced settings accordion -->
+      <div style="margin-top:12px;">
+        <div class="accordion-toggle card-title" id="advToggle" style="margin-bottom:0">
+          <span>⚙️ Advanced Settings</span>
+          <svg class="chevron" id="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="accordion-body" id="advBody" style="margin-top:10px;">
+          <div class="input-row">
+            <div class="form-row" style="margin:0">
+              <div class="form-label">Slippage %</div>
+              <input type="number" class="form-input" id="slippagePct" placeholder="25" step="1" min="1" max="99" value="25">
+            </div>
+            <div class="form-row" style="margin:0">
+              <div class="form-label">Priority Fee (μSOL)</div>
+              <input type="number" class="form-input" id="priorityFee" placeholder="5000000" step="1000000" value="5000000">
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.82em;color:var(--muted)">
+              <input type="checkbox" id="skipSafety" style="accent-color:var(--red)">
+              Skip safety check (risky — use with caution)
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:14px">
+        <button class="btn btn-green" id="startBtn">🚀 SNIPE</button>
+        <button class="btn btn-red" id="stopAllBtn" disabled>⛔ STOP ALL</button>
+      </div>
     </div>
 
-    <script>
-        let updateInterval;
-        let runtimeInterval;
-        let startTime;
+    <!-- Quick presets -->
+    <div class="card">
+      <div class="card-title"><span>⚡</span> Quick Presets</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <button class="btn btn-ghost" onclick="applyPreset('safe')">🛡️ Safe (TP 50%, SL 20%)</button>
+        <button class="btn btn-ghost" onclick="applyPreset('degen')">🔥 Degen (TP 200%, SL 30%, TS 15%)</button>
+        <button class="btn btn-ghost" onclick="applyPreset('scalp')">⚡ Scalp (TP 20%, SL 10%)</button>
+        <button class="btn btn-ghost" onclick="applyPreset('moon')">🌙 Moon (TP 500%, SL 25%, TS 20%)</button>
+      </div>
+    </div>
 
-        function addLog(message) {
-            const logContainer = document.getElementById('logContainer');
-            const time = new Date().toLocaleTimeString();
-            const logEntry = document.createElement('div');
-            logEntry.className = 'log-entry';
-            logEntry.innerHTML = `<span class="log-time">${time}</span><span>${message}</span>`;
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
+    <!-- Wallet info -->
+    <div class="card">
+      <div class="card-title"><span>👛</span> Wallet</div>
+      <div class="stat-box" style="margin-bottom:0">
+        <div class="stat-label">Address</div>
+        <div style="font-family:'Monaco',monospace;font-size:.78em;color:var(--muted);word-break:break-all" id="walletAddr">—</div>
+      </div>
+    </div>
 
-        function showError(message) {
-            const errorEl = document.getElementById('errorMessage');
-            errorEl.textContent = message;
-            errorEl.classList.add('active');
-            addLog(`❌ Error: ${message}`);
-            setTimeout(() => {
-                errorEl.classList.remove('active');
-            }, 5000);
-        }
+  </div>
 
-        function updateDisplay(data) {
-            document.getElementById('entryPrice').textContent = data.entry_price || '$0.00000000';
-            document.getElementById('currentPrice').textContent = data.current_price || '$0.00000000';
-            
-            const priceChangeEl = document.getElementById('priceChange');
-            const changeValue = parseFloat(data.price_change_percent || 0);
-            priceChangeEl.textContent = (changeValue >= 0 ? '+' : '') + changeValue.toFixed(2) + '%';
-            priceChangeEl.className = 'stat-subvalue ' + (changeValue >= 0 ? 'positive' : 'negative');
-            
-            const pnlValueEl = document.getElementById('pnlValue');
-            const pnlPercentEl = document.getElementById('pnlPercent');
-            const pnlValue = parseFloat(data.pnl_usd || 0);
-            const pnlPercent = parseFloat(data.pnl_percent || 0);
-            
-            pnlValueEl.textContent = '$' + Math.abs(pnlValue).toFixed(2);
-            pnlValueEl.className = 'stat-value ' + (pnlValue >= 0 ? 'positive' : 'negative');
-            pnlPercentEl.textContent = '(' + (pnlPercent >= 0 ? '+' : '') + pnlPercent.toFixed(2) + '%)';
-            pnlPercentEl.className = 'stat-subvalue ' + (pnlPercent >= 0 ? 'positive' : 'negative');
-            
-            document.getElementById('positionSize').textContent = parseFloat(data.position_size || 0).toLocaleString();
-            document.getElementById('positionValue').textContent = '$' + parseFloat(data.position_value || 0).toFixed(2);
-            document.getElementById('tpTarget').textContent = data.tp_target || '$0.00000000';
-            document.getElementById('slTarget').textContent = data.sl_target || '$0.00000000';
-            document.getElementById('bondingCurve').textContent = parseFloat(data.bonding_curve_sol || 0).toFixed(2) + ' SOL';
-            document.getElementById('marketCap').textContent = data.market_cap || '$0';
-            
-            const progress = Math.min(Math.max(parseFloat(data.tp_progress || 0), 0), 100);
-            const progressFill = document.getElementById('progressFill');
-            progressFill.style.width = progress + '%';
-            progressFill.textContent = progress.toFixed(1) + '%';
-            
-            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-            
-            if (data.status) {
-                document.getElementById('statusIndicator').innerHTML = 
-                    '<span class="status-dot"></span>' + data.status.toUpperCase();
-            }
+  <!-- MAIN -->
+  <div class="main">
+    <div class="main-top">
 
-            if (data.manual_sell_detected) {
-                addLog('⚠️ Manual sell detected - Bot stopped');
-                stopBot();
-            }
-        }
+      <!-- Summary stats -->
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="stat-label">Active Positions</div>
+          <div class="stat-val" id="sPositions">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total P&L (USD)</div>
+          <div class="stat-val" id="sTotalPnl">$0.00</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Portfolio Value</div>
+          <div class="stat-val" id="sPortfolio">$0.00</div>
+        </div>
+      </div>
 
-        function updateRuntime() {
-            if (!startTime) return;
-            const elapsed = Date.now() - startTime;
-            const hours = Math.floor(elapsed / 3600000);
-            const minutes = Math.floor((elapsed % 3600000) / 60000);
-            const seconds = Math.floor((elapsed % 60000) / 1000);
-            document.getElementById('runtime').textContent = 
-                `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-        }
+      <!-- Positions -->
+      <div class="card" style="flex:1">
+        <div class="card-title" style="margin-bottom:10px">
+          <span>📊</span> Live Positions
+          <span id="posCount" class="badge badge-green" style="margin-left:auto">0 active</span>
+        </div>
+        <div class="positions-list" id="positionsList">
+          <div class="empty-state">
+            <div class="icon">🎯</div>
+            <p>No active positions.<br>Enter a token address and hit SNIPE to start.</p>
+          </div>
+        </div>
+      </div>
 
-        async function fetchStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                if (!data.error) updateDisplay(data);
-            } catch (error) {
-                console.error('Status fetch error:', error);
-            }
-        }
+    </div>
 
-        document.getElementById('sniperForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const config = {
-                token_address: document.getElementById('tokenAddress').value,
-                buy_amount: parseFloat(document.getElementById('buyAmount').value),
-                take_profit_percent: parseFloat(document.getElementById('takeProfitPercent').value)
-            };
-            
-            addLog('🚀 Starting Sniper Pro Bot...');
-            addLog('📊 Analyzing token: ' + config.token_address.substring(0, 8) + '...');
-            
-            try {
-                const response = await fetch('/api/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    showError(data.error);
-                    if (data.debug_info) {
-                        const debugLines = data.debug_info.split('\n');
-                        debugLines.forEach(line => addLog(line));
-                    }
-                    if (data.traceback) {
-                        console.error('Traceback:', data.traceback);
-                    }
-                    return;
-                }
-                
-                startTime = Date.now();
-                document.getElementById('startBtn').disabled = true;
-                document.getElementById('stopBtn').disabled = false;
-                
-                addLog('✅ Bot started successfully!');
-                if (data.tx_signature) {
-                    addLog('📝 TX: ' + data.tx_signature.substring(0, 12) + '...');
-                }
-                
-                updateInterval = setInterval(fetchStatus, 5000);
-                runtimeInterval = setInterval(updateRuntime, 1000);
-                fetchStatus();
-                
-            } catch (error) {
-                showError('Failed to start bot: ' + error.message);
-            }
-        });
+    <!-- Activity log -->
+    <div class="main-log">
+      <div class="log-header">
+        <span>📋 Activity Log</span>
+        <button class="btn btn-ghost" style="padding:3px 8px;font-size:.72em" onclick="clearLog()">Clear</button>
+      </div>
+      <div class="log-body" id="logBody">
+        <div class="log-entry info"><span class="log-time">--:--:--</span><span class="log-msg">⚡ Sniper Pro initialized</span></div>
+      </div>
+    </div>
+  </div>
+</div>
 
-        async function stopBot() {
-            try {
-                await fetch('/api/stop', { method: 'POST' });
-                
-                document.getElementById('startBtn').disabled = false;
-                document.getElementById('stopBtn').disabled = true;
-                
-                if (updateInterval) clearInterval(updateInterval);
-                if (runtimeInterval) clearInterval(runtimeInterval);
-                
-                document.getElementById('statusIndicator').innerHTML = 
-                    '<span class="status-dot"></span>STOPPED';
-                
-                addLog('⛔ Bot stopped');
-                
-            } catch (error) {
-                showError('Failed to stop bot: ' + error.message);
-            }
-        }
+<!-- Toast area -->
+<div class="toast-area" id="toastArea"></div>
 
-        document.getElementById('stopBtn').addEventListener('click', stopBot);
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let pollInterval = null;
+let seenLogCount = 0;
+let lastPositions = {};
 
-        // Check for existing position on load
-        window.addEventListener('load', async () => {
-            try {
-                const response = await fetch('/api/status');
-                const data = await response.json();
-                if (data.active) {
-                    addLog('🔄 Resumed monitoring existing position');
-                    startTime = Date.now();
-                    document.getElementById('startBtn').disabled = true;
-                    document.getElementById('stopBtn').disabled = false;
-                    updateInterval = setInterval(fetchStatus, 5000);
-                    runtimeInterval = setInterval(updateRuntime, 1000);
-                    fetchStatus();
-                }
-            } catch (error) {
-                console.error('Load error:', error);
-            }
-        });
-    </script>
+// ── Utils ────────────────────────────────────────────────────────────────────
+function fmt(n, dec=2) {
+  if (n === undefined || n === null) return '—';
+  return Number(n).toFixed(dec);
+}
+function fmtUsd(n) {
+  if (!n && n !== 0) return '$—';
+  const v = Math.abs(n);
+  if (v >= 1e9) return '$' + (v/1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v/1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return '$' + (v/1e3).toFixed(2) + 'K';
+  if (v >= 1)   return (n<0?'-':'') + '$' + v.toFixed(2);
+  return (n<0?'-':'') + '$' + v.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
+}
+function fmtPct(n) {
+  if (n === undefined) return '—';
+  const s = n >= 0 ? '+' : '';
+  return s + Number(n).toFixed(2) + '%';
+}
+function shortAddr(a) {
+  if (!a) return '—';
+  return a.slice(0, 6) + '…' + a.slice(-4);
+}
+function cls(n) { return n >= 0 ? 'green' : 'red'; }
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, type='info', dur=4000) {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastArea').appendChild(el);
+  setTimeout(() => el.remove(), dur);
+}
+
+// ── Log ──────────────────────────────────────────────────────────────────────
+function addLog(time, msg, level='info') {
+  const body = document.getElementById('logBody');
+  const el = document.createElement('div');
+  el.className = `log-entry ${level}`;
+  el.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${msg}</span>`;
+  body.appendChild(el);
+  body.scrollTop = body.scrollHeight;
+  // keep max 200
+  while (body.children.length > 200) body.removeChild(body.firstChild);
+}
+function clearLog() {
+  document.getElementById('logBody').innerHTML = '';
+}
+
+// ── Accordion ────────────────────────────────────────────────────────────────
+document.getElementById('advToggle').addEventListener('click', () => {
+  const body = document.getElementById('advBody');
+  const chev = document.getElementById('chevron');
+  body.classList.toggle('open');
+  chev.classList.toggle('open');
+});
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+function applyPreset(name) {
+  const presets = {
+    safe:  { tp: 50,  sl: 20, ts: 0,  slip: 25 },
+    degen: { tp: 200, sl: 30, ts: 15, slip: 40 },
+    scalp: { tp: 20,  sl: 10, ts: 0,  slip: 20 },
+    moon:  { tp: 500, sl: 25, ts: 20, slip: 35 },
+  };
+  const p = presets[name];
+  if (!p) return;
+  document.getElementById('takeProfitPct').value   = p.tp;
+  document.getElementById('stopLossPct').value     = p.sl;
+  document.getElementById('trailingStopPct').value = p.ts;
+  document.getElementById('slippagePct').value     = p.slip;
+  toast(`Preset "${name}" applied`, 'info', 2500);
+}
+
+// ── Safety check ─────────────────────────────────────────────────────────────
+document.getElementById('checkBtn').addEventListener('click', async () => {
+  const addr = document.getElementById('tokenAddress').value.trim();
+  if (!addr) { toast('Enter a token address first', 'error'); return; }
+  const btn = document.getElementById('checkBtn');
+  btn.innerHTML = '<span class="spinner"></span> Checking…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/check', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({token_address: addr})
+    });
+    const d = await r.json();
+    renderSafetyBar(d);
+  } catch(e) {
+    toast('Safety check failed: ' + e.message, 'error');
+  } finally {
+    btn.textContent = '🔍 Run Safety Check';
+    btn.disabled = false;
+  }
+});
+
+function renderSafetyBar(d) {
+  const bar = document.getElementById('safetyBar');
+  const score = d.score || 0;
+  const warnings = d.warnings || [];
+  bar.className = 'safety-bar ' + (score >= 70 ? 'safe' : score >= 40 ? 'warn' : 'risky');
+  const icon = score >= 70 ? '✅' : score >= 40 ? '⚠️' : '⛔';
+  const label = score >= 70 ? 'SAFE' : score >= 40 ? 'RISKY' : 'DANGER';
+  bar.innerHTML = `${icon} ${label}${warnings.length ? ' — ' + warnings[0] : ''}<span class="safety-score">${score}/100</span>`;
+}
+
+// ── START ─────────────────────────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', async () => {
+  const token   = document.getElementById('tokenAddress').value.trim();
+  const amount  = parseFloat(document.getElementById('buyAmount').value);
+  const tp      = parseFloat(document.getElementById('takeProfitPct').value);
+  const sl      = parseFloat(document.getElementById('stopLossPct').value);
+  const ts      = parseFloat(document.getElementById('trailingStopPct').value) || 0;
+  const slip    = parseFloat(document.getElementById('slippagePct').value) / 100 || 0.25;
+  const pf      = parseInt(document.getElementById('priorityFee').value) || 5_000_000;
+  const skipSaf = document.getElementById('skipSafety').checked;
+
+  if (!token)         { toast('Enter a token address', 'error'); return; }
+  if (!amount || amount <= 0)  { toast('Enter a valid buy amount', 'error'); return; }
+  if (!tp || tp <= 0) { toast('Enter a valid take profit %', 'error'); return; }
+  if (!sl || sl <= 0) { toast('Enter a valid stop loss %', 'error'); return; }
+
+  const btn = document.getElementById('startBtn');
+  btn.innerHTML = '<span class="spinner"></span> Sniping…';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch('/api/start', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        token_address: token,
+        buy_amount: amount,
+        take_profit_percent: tp,
+        stop_loss_percent: sl,
+        trailing_stop_percent: ts,
+        slippage: slip,
+        priority_fee: pf,
+        skip_safety: skipSaf,
+      })
+    });
+    const d = await r.json();
+    if (d.success) {
+      toast(`✅ Sniped! TX: ${d.tx_signature?.slice(0,12)}…`, 'success', 6000);
+      addLog(now(), `🚀 Bought ${token.slice(0,8)}… — TX ${d.tx_signature?.slice(0,12)}…`);
+      if (d.safety) renderSafetyBar(d.safety);
+      document.getElementById('stopAllBtn').disabled = false;
+      fetchStatus();
+    } else {
+      toast('Error: ' + (d.error || 'unknown'), 'error', 7000);
+      addLog(now(), '❌ ' + (d.error || 'Start failed'), 'error');
+      if (d.safety && d.safety.warnings?.length) {
+        d.safety.warnings.forEach(w => addLog(now(), '⚠ ' + w, 'warning'));
+      }
+    }
+  } catch(e) {
+    toast('Request failed: ' + e.message, 'error');
+    addLog(now(), '❌ ' + e.message, 'error');
+  } finally {
+    btn.textContent = '🚀 SNIPE';
+    btn.disabled = false;
+  }
+});
+
+// ── STOP ALL ─────────────────────────────────────────────────────────────────
+document.getElementById('stopAllBtn').addEventListener('click', async () => {
+  if (!confirm('Stop ALL positions and sell everything?')) return;
+  try {
+    await fetch('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({})});
+    toast('Stop all submitted', 'info');
+    addLog(now(), '⛔ Stop-all submitted');
+    setTimeout(fetchStatus, 3000);
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+});
+
+// ── STOP single ───────────────────────────────────────────────────────────────
+async function stopPosition(addr) {
+  if (!confirm(`Sell position ${addr.slice(0,8)}…?`)) return;
+  try {
+    const r = await fetch('/api/stop', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token_address: addr})
+    });
+    const d = await r.json();
+    toast(d.success ? '⛔ Sell submitted' : 'Error: ' + d.error, d.success ? 'info' : 'error');
+    addLog(now(), d.success ? `⛔ Selling ${addr.slice(0,8)}…` : `❌ Stop error: ${d.error}`, d.success ? 'info' : 'error');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+// ── Render positions ──────────────────────────────────────────────────────────
+function renderPositions(positions) {
+  const list = document.getElementById('positionsList');
+  const count = document.getElementById('posCount');
+
+  if (!positions || positions.length === 0) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">🎯</div><p>No active positions.<br>Enter a token address and hit SNIPE to start.</p></div>`;
+    count.textContent = '0 active';
+    document.getElementById('stopAllBtn').disabled = true;
+    return;
+  }
+
+  count.textContent = positions.length + ' active';
+  document.getElementById('stopAllBtn').disabled = false;
+
+  list.innerHTML = positions.map(p => {
+    const pnlPct  = p.pnl_percent || 0;
+    const pnlUsd  = p.pnl_usd || 0;
+    const isGain  = pnlPct >= 0;
+    const progress= Math.min(100, Math.max(0, p.tp_progress || 0));
+    const slProg  = pnlPct < 0 ? Math.min(100, Math.abs(pnlPct) / (p.stop_loss_pct||20) * 100) : 0;
+
+    return `
+<div class="position-card ${isGain ? '' : 'loss'}">
+  <div class="position-header">
+    <div>
+      <div style="font-weight:700;font-size:.95em">${shortAddr(p.token_address)}</div>
+      <div class="position-token">${p.token_address}</div>
+    </div>
+    <div style="text-align:right">
+      <div class="position-pnl ${cls(pnlPct)}">${fmtPct(pnlPct)}</div>
+      <div style="font-size:.78em;color:var(--muted)">${fmtUsd(pnlUsd)}</div>
+    </div>
+  </div>
+
+  <div class="position-grid">
+    <div class="position-stat">
+      <div class="label">Entry</div>
+      <div class="val">${fmtUsd(p.entry_price_usd)}</div>
+    </div>
+    <div class="position-stat">
+      <div class="label">Current</div>
+      <div class="val ${cls(pnlPct)}">${fmtUsd(p.current_price_usd)}</div>
+    </div>
+    <div class="position-stat">
+      <div class="label">Size</div>
+      <div class="val">${Number(p.position_size||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+    </div>
+    <div class="position-stat">
+      <div class="label">Value</div>
+      <div class="val">${fmtUsd(p.position_value_usd)}</div>
+    </div>
+    <div class="position-stat">
+      <div class="label">Bonding Curve</div>
+      <div class="val">${fmt(p.bonding_curve_sol,2)} SOL</div>
+    </div>
+    <div class="position-stat">
+      <div class="label">Safety</div>
+      <div class="val ${p.safety_score >= 70 ? 'green' : p.safety_score >= 40 ? 'yellow' : 'red'}">${p.safety_score || '—'}/100</div>
+    </div>
+  </div>
+
+  ${progress > 0 ? `
+  <div class="progress-wrap">
+    <div class="progress-label"><span>TP Progress</span><span>${fmt(progress,1)}%</span></div>
+    <div class="progress-track"><div class="progress-fill" style="width:${progress}%"></div></div>
+  </div>` : ''}
+
+  ${slProg > 0 ? `
+  <div class="progress-wrap">
+    <div class="progress-label"><span>SL Proximity</span><span>${fmt(slProg,1)}%</span></div>
+    <div class="progress-track"><div class="progress-fill sl" style="width:${slProg}%"></div></div>
+  </div>` : ''}
+
+  <div class="targets-row">
+    <div class="target-pill tp">
+      <div class="target-pill-label">Take Profit</div>
+      <div class="target-pill-val">+${p.take_profit_pct}% / ${fmtUsd(p.tp_target_usd)}</div>
+    </div>
+    <div class="target-pill sl">
+      <div class="target-pill-label">Stop Loss</div>
+      <div class="target-pill-val">-${p.stop_loss_pct}% / ${fmtUsd(p.sl_target_usd)}</div>
+    </div>
+    ${p.trailing_stop_pct > 0 ? `
+    <div class="target-pill ts">
+      <div class="target-pill-label">Trailing</div>
+      <div class="target-pill-val">-${p.trailing_stop_pct}%</div>
+    </div>` : ''}
+  </div>
+
+  <div style="display:flex;gap:6px;margin-top:10px;align-items:center">
+    <span class="badge ${p.status==='active'?'badge-green':'badge-yellow'}">${p.status||'active'}</span>
+    <span style="font-size:.72em;color:var(--muted);margin-left:4px">Updated ${p.last_update ? new Date(p.last_update).toLocaleTimeString() : '—'}</span>
+    <button class="btn btn-red" style="margin-left:auto;width:auto;padding:5px 12px;font-size:.78em" onclick="stopPosition('${p.token_address}')">Sell</button>
+    <a href="https://solscan.io/token/${p.token_address}" target="_blank" style="font-size:.78em;color:var(--muted);text-decoration:none">🔗</a>
+  </div>
+</div>`;
+  }).join('');
+}
+
+// ── Fetch status ──────────────────────────────────────────────────────────────
+function now() { return new Date().toLocaleTimeString(); }
+
+async function fetchStatus() {
+  try {
+    const r = await fetch('/api/status');
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // Header
+    const solBal = d.sol_balance ?? 0;
+    document.getElementById('hSolBal').textContent = solBal.toFixed(4) + ' SOL';
+    document.getElementById('hPositions').textContent = d.position_count || 0;
+    const totalPnl = d.total_pnl_usd || 0;
+    const hPnl = document.getElementById('hTotalPnl');
+    hPnl.textContent = (totalPnl >= 0 ? '+' : '') + fmtUsd(totalPnl);
+    hPnl.className = 'hstat-val ' + cls(totalPnl);
+
+    // Summary
+    document.getElementById('sPositions').textContent = d.position_count || 0;
+    const sPnl = document.getElementById('sTotalPnl');
+    sPnl.textContent = (totalPnl >= 0 ? '+' : '') + fmtUsd(totalPnl);
+    sPnl.className = 'stat-val ' + cls(totalPnl);
+    document.getElementById('sPortfolio').textContent = fmtUsd(d.total_value_usd || 0);
+
+    // Wallet
+    if (d.wallet_address) document.getElementById('walletAddr').textContent = d.wallet_address;
+
+    // Positions
+    renderPositions(d.positions || []);
+
+    // Activity log (backend)
+    const logs = d.activity_log || [];
+    const newLogs = logs.slice(seenLogCount);
+    newLogs.forEach(l => addLog(l.time, l.message, l.level || 'info'));
+    seenLogCount = logs.length;
+
+    // Connection dot
+    document.getElementById('connDot').className = 'dot green';
+    document.getElementById('connLabel').textContent = 'LIVE';
+
+  } catch(e) {
+    document.getElementById('connDot').className = 'dot';
+    document.getElementById('connLabel').textContent = 'OFFLINE';
+  }
+}
+
+// ── Poll ──────────────────────────────────────────────────────────────────────
+fetchStatus();
+pollInterval = setInterval(fetchStatus, 4000);
+</script>
 </body>
 </html>

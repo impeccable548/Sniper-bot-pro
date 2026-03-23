@@ -1,4 +1,4 @@
-# pump_sdk.py - Real Pump.fun SDK Integration - SIMPLE VERSION
+# pump_sdk.py - Pump.fun SDK with Buy + Sell
 from solana.rpc.api import Client
 from solana.rpc.types import TxOpts
 from solders.keypair import Keypair
@@ -12,191 +12,205 @@ from solders.sysvar import RENT
 import base58
 import struct
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Pump.fun Program Constants
-PUMP_FUN_PROGRAM = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
-PUMP_FUN_EVENT_AUTHORITY = Pubkey.from_string("Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1")
-PUMP_FUN_FEE_RECIPIENT = Pubkey.from_string("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM")
-TOKEN_PROGRAM = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-ASSOCIATED_TOKEN_PROGRAM = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+PUMP_FUN_PROGRAM        = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+PUMP_FUN_EVENT_AUTHORITY= Pubkey.from_string("Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1")
+PUMP_FUN_FEE_RECIPIENT  = Pubkey.from_string("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM")
+TOKEN_PROGRAM           = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+ASSOCIATED_TOKEN_PROGRAM= Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+GLOBAL_STATE            = Pubkey.from_string("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf")
 
-# Buy instruction discriminator
-BUY_INSTRUCTION_DISCRIMINATOR = bytes([0x66, 0x06, 0x3d, 0x12, 0x01, 0xda, 0xeb, 0xea])
+BUY_DISCRIMINATOR  = bytes([0x66, 0x06, 0x3d, 0x12, 0x01, 0xda, 0xeb, 0xea])
+SELL_DISCRIMINATOR = bytes([0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0xad])
+
 
 class PumpFunSDK:
-    def __init__(self, rpc_url, private_key):
+    def __init__(self, rpc_url, private_key, slippage=0.25, priority_fee=5_000_000):
         self.client = Client(rpc_url)
         self.wallet = Keypair.from_bytes(base58.b58decode(private_key)) if private_key else None
-        self.slippage = 0.50
-        self.priority_fee = 5_000_000
-    
-    def derive_bonding_curve(self, token_mint):
-        """Derive bonding curve PDA"""
+        self.slippage = slippage
+        self.priority_fee = priority_fee
+
+    # ──────────────────────────────────────────────
+    # PDA helpers
+    # ──────────────────────────────────────────────
+    def derive_bonding_curve(self, token_mint: str) -> str | None:
         try:
-            mint_pubkey = Pubkey.from_string(token_mint)
-            seeds = [b"bonding-curve", bytes(mint_pubkey)]
-            pda, bump = Pubkey.find_program_address(seeds, PUMP_FUN_PROGRAM)
+            mint = Pubkey.from_string(token_mint)
+            pda, _ = Pubkey.find_program_address([b"bonding-curve", bytes(mint)], PUMP_FUN_PROGRAM)
             return str(pda)
         except Exception as e:
-            print(f"Error deriving bonding curve: {e}")
+            logger.error(f"derive_bonding_curve error: {e}")
             return None
-    
-    def derive_associated_bonding_curve(self, bonding_curve, token_mint):
-        """Derive associated bonding curve token account"""
+
+    def derive_associated_bonding_curve(self, bonding_curve: str, token_mint: str) -> str | None:
         try:
-            bonding_curve_pubkey = Pubkey.from_string(bonding_curve)
-            mint_pubkey = Pubkey.from_string(token_mint)
-            seeds = [
-                bytes(bonding_curve_pubkey),
-                bytes(TOKEN_PROGRAM),
-                bytes(mint_pubkey)
-            ]
-            pda, bump = Pubkey.find_program_address(seeds, ASSOCIATED_TOKEN_PROGRAM)
-            return str(pda)
-        except Exception as e:
-            print(f"Error deriving associated bonding curve: {e}")
-            return None
-    
-    def get_associated_token_address(self, owner, mint):
-        """Get ATA for owner and mint"""
-        try:
-            owner_pubkey = Pubkey.from_string(owner) if isinstance(owner, str) else owner
-            mint_pubkey = Pubkey.from_string(mint) if isinstance(mint, str) else mint
-            seeds = [
-                bytes(owner_pubkey),
-                bytes(TOKEN_PROGRAM),
-                bytes(mint_pubkey)
-            ]
-            pda, bump = Pubkey.find_program_address(seeds, ASSOCIATED_TOKEN_PROGRAM)
-            return str(pda)
-        except Exception as e:
-            print(f"Error getting ATA: {e}")
-            return None
-    
-    def build_buy_instruction(self, token_mint, bonding_curve, amount_sol, max_sol_cost):
-        """Build buy instruction"""
-        try:
-            mint_pubkey = Pubkey.from_string(token_mint)
-            bonding_curve_pubkey = Pubkey.from_string(bonding_curve)
-            
-            associated_bonding_curve = self.derive_associated_bonding_curve(bonding_curve, token_mint)
-            if not associated_bonding_curve:
-                raise Exception("Failed to derive associated bonding curve")
-            
-            user_token_account = self.get_associated_token_address(self.wallet.pubkey(), token_mint)
-            if not user_token_account:
-                raise Exception("Failed to get user token account")
-            
-            token_amount = int(amount_sol * 1e9 * 1000000)
-            
-            instruction_data = bytearray(BUY_INSTRUCTION_DISCRIMINATOR)
-            instruction_data.extend(struct.pack('<Q', token_amount))
-            instruction_data.extend(struct.pack('<Q', int(max_sol_cost * 1e9)))
-            
-            accounts = [
-                AccountMeta(pubkey=Pubkey.from_string("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf"), is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT, is_signer=False, is_writable=True),
-                AccountMeta(pubkey=mint_pubkey, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=bonding_curve_pubkey, is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(associated_bonding_curve), is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(user_token_account), is_signer=False, is_writable=True),
-                AccountMeta(pubkey=self.wallet.pubkey(), is_signer=True, is_writable=True),
-                AccountMeta(pubkey=SYS_PROGRAM_ID, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=TOKEN_PROGRAM, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=RENT, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_PROGRAM, is_signer=False, is_writable=False),
-            ]
-            
-            return Instruction(
-                program_id=PUMP_FUN_PROGRAM,
-                accounts=accounts,
-                data=bytes(instruction_data)
+            bc  = Pubkey.from_string(bonding_curve)
+            mint= Pubkey.from_string(token_mint)
+            pda, _ = Pubkey.find_program_address(
+                [bytes(bc), bytes(TOKEN_PROGRAM), bytes(mint)],
+                ASSOCIATED_TOKEN_PROGRAM
             )
-            
+            return str(pda)
         except Exception as e:
-            print(f"Error building buy instruction: {e}")
+            logger.error(f"derive_associated_bonding_curve error: {e}")
             return None
-    
-    def buy_token(self, token_mint, bonding_curve, amount_sol):
-        """Execute buy transaction"""
+
+    def get_associated_token_address(self, owner, mint) -> str | None:
         try:
-            print(f"🔨 Building buy transaction...")
-            
-            max_sol_cost = amount_sol * (1 + self.slippage)
+            o = Pubkey.from_string(owner) if isinstance(owner, str) else owner
+            m = Pubkey.from_string(mint)  if isinstance(mint,  str) else mint
+            pda, _ = Pubkey.find_program_address(
+                [bytes(o), bytes(TOKEN_PROGRAM), bytes(m)],
+                ASSOCIATED_TOKEN_PROGRAM
+            )
+            return str(pda)
+        except Exception as e:
+            logger.error(f"get_associated_token_address error: {e}")
+            return None
+
+    # ──────────────────────────────────────────────
+    # Transaction helpers
+    # ──────────────────────────────────────────────
+    def _base_instructions(self, compute_units=400_000):
+        return [
+            set_compute_unit_limit(compute_units),
+            set_compute_unit_price(self.priority_fee),
+        ]
+
+    def _send_and_confirm(self, instructions, recent_blockhash=None, max_attempts=40):
+        if recent_blockhash is None:
             recent_blockhash = self.client.get_latest_blockhash().value.blockhash
-            
-            instructions = []
-            instructions.append(set_compute_unit_limit(400_000))
-            instructions.append(set_compute_unit_price(self.priority_fee))
-            
-            buy_ix = self.build_buy_instruction(token_mint, bonding_curve, amount_sol, max_sol_cost)
-            if not buy_ix:
-                return {"success": False, "error": "Failed to build buy instruction"}
-            
-            instructions.append(buy_ix)
-            
-            message = MessageV0.try_compile(
-                payer=self.wallet.pubkey(),
-                instructions=instructions,
-                address_lookup_table_accounts=[],
-                recent_blockhash=recent_blockhash
-            )
-            
-            transaction = VersionedTransaction(message, [self.wallet])
-            
-            print(f"📤 Sending transaction...")
-            
-            response = self.client.send_transaction(
-                transaction,
-                opts=TxOpts(skip_preflight=True, max_retries=3)
-            )
-            
-            signature = str(response.value)
-            print(f"✅ Transaction sent: {signature}")
-            
-            # Wait for confirmation - FIXED VERSION
-            print(f"⏳ Waiting for confirmation...")
-            max_attempts = 30
-            for i in range(max_attempts):
-                time.sleep(2)
-                try:
-                    # Use Pubkey to create proper signature type
-                    sig_bytes = base58.b58decode(signature)
-                    status_response = self.client.get_signature_statuses([sig_bytes])
-                    
-                    if status_response and status_response.value and len(status_response.value) > 0:
-                        status = status_response.value[0]
-                        if status:
-                            if status.err:
-                                return {"success": False, "error": f"Transaction failed: {status.err}"}
-                            if status.confirmation_status:
-                                print(f"✅ Transaction confirmed!")
-                                tokens_received = amount_sol * 1e6
-                                return {
-                                    "success": True,
-                                    "signature": signature,
-                                    "tokens_received": tokens_received
-                                }
-                except:
-                    continue
-            
-            # Timeout but transaction was sent
-            print(f"⚠️ Confirmation timeout")
-            tokens_received = amount_sol * 1e6
-            return {
-                "success": True,
-                "signature": signature,
-                "tokens_received": tokens_received
-            }
-            
+
+        msg = MessageV0.try_compile(
+            payer=self.wallet.pubkey(),
+            instructions=instructions,
+            address_lookup_table_accounts=[],
+            recent_blockhash=recent_blockhash,
+        )
+        tx = VersionedTransaction(msg, [self.wallet])
+        resp = self.client.send_transaction(tx, opts=TxOpts(skip_preflight=True, max_retries=3))
+        sig = str(resp.value)
+        logger.info(f"TX sent: {sig}")
+
+        for _ in range(max_attempts):
+            time.sleep(2)
+            try:
+                sig_bytes = base58.b58decode(sig)
+                status_resp = self.client.get_signature_statuses([sig_bytes])
+                if status_resp and status_resp.value and status_resp.value[0]:
+                    s = status_resp.value[0]
+                    if s.err:
+                        return {"success": False, "error": f"TX failed on-chain: {s.err}", "signature": sig}
+                    if s.confirmation_status:
+                        logger.info(f"TX confirmed: {sig}")
+                        return {"success": True, "signature": sig}
+            except Exception:
+                continue
+
+        logger.warning("TX confirmation timeout — assuming success")
+        return {"success": True, "signature": sig}
+
+    # ──────────────────────────────────────────────
+    # BUY
+    # ──────────────────────────────────────────────
+    def buy_token(self, token_mint: str, bonding_curve: str, amount_sol: float):
+        try:
+            if not self.wallet:
+                return {"success": False, "error": "No wallet configured"}
+
+            mint_pk    = Pubkey.from_string(token_mint)
+            bc_pk      = Pubkey.from_string(bonding_curve)
+            assoc_bc   = self.derive_associated_bonding_curve(bonding_curve, token_mint)
+            user_ata   = self.get_associated_token_address(str(self.wallet.pubkey()), token_mint)
+
+            if not assoc_bc or not user_ata:
+                return {"success": False, "error": "PDA derivation failed"}
+
+            max_sol_cost  = amount_sol * (1 + self.slippage)
+            token_amount  = int(amount_sol * 1e9 * 1_000_000)
+
+            data = bytearray(BUY_DISCRIMINATOR)
+            data.extend(struct.pack('<Q', token_amount))
+            data.extend(struct.pack('<Q', int(max_sol_cost * 1e9)))
+
+            accounts = [
+                AccountMeta(pubkey=GLOBAL_STATE,                     is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,           is_signer=False, is_writable=True),
+                AccountMeta(pubkey=mint_pk,                          is_signer=False, is_writable=False),
+                AccountMeta(pubkey=bc_pk,                            is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),     is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(user_ata),     is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(),             is_signer=True,  is_writable=True),
+                AccountMeta(pubkey=SYS_PROGRAM_ID,                   is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM,                    is_signer=False, is_writable=False),
+                AccountMeta(pubkey=RENT,                             is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,         is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                 is_signer=False, is_writable=False),
+            ]
+
+            buy_ix = Instruction(program_id=PUMP_FUN_PROGRAM, accounts=accounts, data=bytes(data))
+            instructions = self._base_instructions() + [buy_ix]
+
+            result = self._send_and_confirm(instructions)
+            if result["success"]:
+                result["tokens_received"] = amount_sol / 1e-6  # rough estimate
+            return result
+
         except Exception as e:
-            print(f"❌ Buy error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"buy_token error: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
-    
-    def sell_token(self, token_mint, bonding_curve, token_amount):
-        """Sell (Stage 2)"""
-        print("⚠️ Sell not implemented yet (Stage 2)")
-        return {"success": False, "error": "Sell not implemented yet"}
+
+    # ──────────────────────────────────────────────
+    # SELL
+    # ──────────────────────────────────────────────
+    def sell_token(self, token_mint: str, bonding_curve: str, token_amount: int, min_sol_output: float = 0.0):
+        """
+        Sell `token_amount` (raw units) of `token_mint` back through the bonding curve.
+        `min_sol_output` is the minimum SOL to receive (slippage guard).
+        """
+        try:
+            if not self.wallet:
+                return {"success": False, "error": "No wallet configured"}
+
+            mint_pk  = Pubkey.from_string(token_mint)
+            bc_pk    = Pubkey.from_string(bonding_curve)
+            assoc_bc = self.derive_associated_bonding_curve(bonding_curve, token_mint)
+            user_ata = self.get_associated_token_address(str(self.wallet.pubkey()), token_mint)
+
+            if not assoc_bc or not user_ata:
+                return {"success": False, "error": "PDA derivation failed"}
+
+            min_sol_lamports = int(min_sol_output * 1e9 * (1 - self.slippage))
+
+            data = bytearray(SELL_DISCRIMINATOR)
+            data.extend(struct.pack('<Q', token_amount))
+            data.extend(struct.pack('<Q', min_sol_lamports))
+
+            accounts = [
+                AccountMeta(pubkey=GLOBAL_STATE,                     is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,           is_signer=False, is_writable=True),
+                AccountMeta(pubkey=mint_pk,                          is_signer=False, is_writable=False),
+                AccountMeta(pubkey=bc_pk,                            is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),     is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(user_ata),     is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(),             is_signer=True,  is_writable=True),
+                AccountMeta(pubkey=SYS_PROGRAM_ID,                   is_signer=False, is_writable=False),
+                AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM,         is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM,                    is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,         is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                 is_signer=False, is_writable=False),
+            ]
+
+            sell_ix = Instruction(program_id=PUMP_FUN_PROGRAM, accounts=accounts, data=bytes(data))
+            instructions = self._base_instructions(600_000) + [sell_ix]
+
+            return self._send_and_confirm(instructions)
+
+        except Exception as e:
+            logger.error(f"sell_token error: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
