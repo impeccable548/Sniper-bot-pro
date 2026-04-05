@@ -5,908 +5,913 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sniper Pro — Solana Bot</title>
 <style>
-:root {
-  --bg:#0a0b0e; --bg2:#0f1219; --bg3:#141820; --bg4:#1a1f2e;
-  --border:#1e2535; --border2:#252d40;
-  --green:#00f5a0; --green2:#00c97d; --green3:rgba(0,245,160,.12);
-  --red:#ff3d5a; --red2:#c0392b; --red3:rgba(255,61,90,.12);
-  --yellow:#ffc857; --yellow3:rgba(255,200,87,.12);
-  --blue:#4d9fff; --blue3:rgba(77,159,255,.12);
+:root{
+  --bg:#0a0b0e;--bg2:#0f1219;--bg3:#141820;--bg4:#1a1f2e;
+  --border:#1e2535;--border2:#252d40;
+  --green:#00f5a0;--green2:#00c97d;--green3:rgba(0,245,160,.12);
+  --red:#ff3d5a;--red2:#c0392b;--red3:rgba(255,61,90,.12);
+  --yellow:#ffc857;--yellow3:rgba(255,200,87,.12);
+  --blue:#4d9fff;--blue3:rgba(77,159,255,.12);
   --purple:#9d5cff;
-  --text:#e2e8f0; --muted:#64748b; --muted2:#94a3b8;
-  --radius:12px; --shadow:0 4px 24px rgba(0,0,0,.5);
+  --text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;
+  --radius:12px;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;overflow:hidden}
-::-webkit-scrollbar{width:5px;height:5px}
-::-webkit-scrollbar-track{background:var(--bg)}
-::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+html,body{height:100%;overflow:hidden}
+body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 
-/* ── HEADER ── */
-.hdr{display:flex;align-items:center;gap:12px;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;height:52px}
-.logo{font-size:1.2em;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,var(--green),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap}
+/* ── TOP BAR ── */
+.hdr{height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
+.logo{font-size:1.1em;font-weight:800;background:linear-gradient(135deg,var(--green),var(--blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;white-space:nowrap;letter-spacing:-.3px}
 
-/* Mode pills */
-.mode-group{display:flex;gap:3px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:3px}
-.mode-btn{padding:5px 12px;border:none;border-radius:6px;font-size:.78em;font-weight:700;cursor:pointer;color:var(--muted);background:transparent;transition:all .2s;white-space:nowrap}
-.mode-btn.active-demo{background:var(--blue3);color:var(--blue);border:1px solid rgba(77,159,255,.3)}
-.mode-btn.active-semi{background:var(--yellow3);color:var(--yellow);border:1px solid rgba(255,200,87,.3)}
-.mode-btn.active-full{background:var(--green3);color:var(--green);border:1px solid rgba(0,245,160,.3)}
-.mode-btn:hover:not(.active-demo):not(.active-semi):not(.active-full){color:var(--text)}
+/* Mode toggle */
+.mode-group{display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:3px}
+.mbtn{padding:5px 13px;border:none;border-radius:5px;font-size:.75em;font-weight:700;cursor:pointer;color:var(--muted);background:transparent;transition:all .18s;white-space:nowrap;letter-spacing:.2px}
+.mbtn:hover:not(.m-demo):not(.m-semi):not(.m-full){color:var(--muted2)}
+.m-demo{background:var(--blue3);color:var(--blue);border:1px solid rgba(77,159,255,.25)}
+.m-semi{background:var(--yellow3);color:var(--yellow);border:1px solid rgba(255,200,87,.25)}
+.m-full{background:var(--green3);color:var(--green);border:1px solid rgba(0,245,160,.25)}
 
-.hdr-stats{display:flex;gap:20px;align-items:center;margin-left:auto}
-.hstat{display:flex;flex-direction:column;align-items:flex-end}
-.hstat-l{font-size:.68em;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.hstat-v{font-size:.95em;font-weight:700;font-family:'Monaco',monospace}
-.live-dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
-.live-dot.on{background:var(--green);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}
+.hdr-right{display:flex;gap:20px;align-items:center;margin-left:auto}
+.hstat .l{font-size:.66em;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.hstat .v{font-size:.95em;font-weight:700;font-family:'Monaco',monospace}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.dot.on{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-/* ── LAYOUT ── */
-.layout{display:grid;grid-template-columns:340px 1fr;height:calc(100vh - 52px)}
-.sidebar{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
-.main{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+/* ── ROOT LAYOUT ── */
+.root{display:flex;flex-direction:column;height:calc(100vh - 52px)}
+.body-row{display:flex;flex:1;min-height:0;overflow:hidden}
 
-/* ── SIDEBAR TABS ── */
-.stabs{display:flex;border-bottom:1px solid var(--border)}
-.stab{flex:1;padding:10px 6px;text-align:center;font-size:.75em;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;text-transform:uppercase;letter-spacing:.4px}
-.stab.active{color:var(--green);border-bottom-color:var(--green)}
-.stab:hover:not(.active){color:var(--text)}
-.stab-panel{flex:1;overflow-y:auto;padding:16px;display:none;flex-direction:column;gap:14px}
-.stab-panel.active{display:flex}
+/* ── SIDEBAR ── */
+.sidebar{width:336px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.stabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.stab{flex:1;padding:10px 4px;text-align:center;font-size:.72em;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.5px;transition:all .18s}
+.stab.on{color:var(--green);border-bottom-color:var(--green)}
+.stab:hover:not(.on){color:var(--text)}
+.stab-body{flex:1;min-height:0;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:12px}
+.stab-body.on{display:flex}
 
-/* ── MAIN TABS ── */
-.mtabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg2);padding:0 16px}
-.mtab{padding:10px 16px;font-size:.78em;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;text-transform:uppercase;letter-spacing:.4px}
-.mtab.active{color:var(--green);border-bottom-color:var(--green)}
-.mpanel{flex:1;overflow-y:auto;padding:16px;display:none;flex-direction:column;gap:14px}
-.mpanel.active{display:flex}
+/* ── MAIN PANEL ── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+.mtabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;padding:0 14px}
+.mtab{padding:10px 14px;font-size:.74em;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.5px;transition:all .18s}
+.mtab.on{color:var(--green);border-bottom-color:var(--green)}
+.mpanel{flex:1;min-height:0;overflow-y:auto;padding:14px;display:none;flex-direction:column;gap:12px}
+.mpanel.on{display:flex}
+
+/* ── LOG FOOTER ── */
+.log-footer{height:170px;flex-shrink:0;border-top:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;overflow:hidden}
+.log-hdr{display:flex;align-items:center;justify-content:space-between;padding:5px 14px;border-bottom:1px solid var(--border);font-size:.68em;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;flex-shrink:0}
+.log-body{flex:1;min-height:0;overflow-y:auto;padding:5px 14px;font-family:'Monaco',monospace;font-size:.74em;line-height:1.6}
+.le{border-bottom:1px solid rgba(255,255,255,.025);padding:1px 0}
+.lt{color:var(--muted);margin-right:8px}
+.le.error .lm{color:var(--red)}
+.le.warning .lm{color:var(--yellow)}
+.le.info .lm{color:var(--muted2)}
 
 /* ── CARDS ── */
 .card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:14px}
-.card-title{font-size:.72em;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px;display:flex;align-items:center;gap:6px}
-.card-title .dot{margin-left:auto}
+.ctitle{font-size:.7em;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:11px;display:flex;align-items:center;gap:6px}
 
-/* ── FORM ── */
-.frow{margin-bottom:10px}
-.flabel{display:flex;justify-content:space-between;font-size:.76em;color:var(--muted);margin-bottom:4px;font-weight:500}
-.flabel b{color:var(--green);font-family:'Monaco',monospace;font-size:.9em}
-.finput{width:100%;padding:9px 11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.88em;font-family:'Monaco',monospace;transition:border-color .2s,box-shadow .2s}
-.finput:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(0,245,160,.08)}
-.finput::placeholder{color:var(--muted)}
-.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.fgrid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+/* ── FORMS ── */
+.frow{margin-bottom:9px}
+.flbl{font-size:.74em;color:var(--muted);margin-bottom:4px;font-weight:500;display:flex;justify-content:space-between}
+.flbl b{color:var(--green);font-family:'Monaco',monospace}
+.inp{width:100%;padding:8px 11px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.86em;font-family:'Monaco',monospace;transition:border-color .18s}
+.inp:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(0,245,160,.07)}
+.inp::placeholder{color:var(--muted)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px}
 
 /* ── BUTTONS ── */
-.btn{padding:9px 14px;border:none;border-radius:8px;font-size:.84em;font-weight:700;cursor:pointer;transition:all .2s;width:100%;letter-spacing:.2px}
+.btn{padding:8px 14px;border:none;border-radius:8px;font-size:.83em;font-weight:700;cursor:pointer;transition:all .18s;width:100%}
 .btn:disabled{opacity:.35;cursor:not-allowed}
-.btn-green{background:linear-gradient(135deg,var(--green),var(--green2));color:#000}
-.btn-green:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 18px rgba(0,245,160,.3)}
-.btn-red{background:linear-gradient(135deg,var(--red),var(--red2));color:#fff}
-.btn-red:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 18px rgba(255,61,90,.3)}
-.btn-blue{background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff}
-.btn-blue:hover:not(:disabled){transform:translateY(-1px)}
-.btn-ghost{background:transparent;border:1px solid var(--border2);color:var(--muted);width:auto;padding:7px 12px;font-size:.78em}
-.btn-ghost:hover:not(:disabled){border-color:var(--green);color:var(--green)}
-.btn-row{display:flex;gap:8px;margin-top:4px}
-.btn-row .btn{flex:1}
+.btn-g{background:linear-gradient(135deg,var(--green),var(--green2));color:#000}
+.btn-g:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 5px 18px rgba(0,245,160,.25)}
+.btn-r{background:linear-gradient(135deg,var(--red),var(--red2));color:#fff}
+.btn-r:hover:not(:disabled){box-shadow:0 5px 18px rgba(255,61,90,.25)}
+.btn-b{background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff}
+.btn-b:hover:not(:disabled){transform:translateY(-1px)}
+.btn-gh{background:transparent;border:1px solid var(--border2);color:var(--muted);width:auto;padding:6px 12px;font-size:.76em}
+.btn-gh:hover:not(:disabled){border-color:var(--green);color:var(--green)}
+.brow{display:flex;gap:8px}
+.brow .btn{flex:1}
 
 /* ── SAFETY BAR ── */
-.sbar{padding:8px 12px;border-radius:8px;font-size:.8em;font-weight:600;border:1px solid var(--border);display:none;align-items:center;gap:8px;margin-bottom:10px}
-.sbar.safe{display:flex;border-color:rgba(0,245,160,.4);color:var(--green);background:var(--green3)}
-.sbar.warn{display:flex;border-color:rgba(255,200,87,.4);color:var(--yellow);background:var(--yellow3)}
-.sbar.risky{display:flex;border-color:rgba(255,61,90,.4);color:var(--red);background:var(--red3)}
-.sbar .sc{margin-left:auto;font-family:'Monaco',monospace;font-size:1.05em}
+.sbar{padding:8px 12px;border-radius:8px;font-size:.79em;font-weight:600;border:1px solid var(--border);display:none;align-items:center;gap:8px;margin-bottom:9px}
+.sbar.safe{display:flex;border-color:rgba(0,245,160,.35);color:var(--green);background:var(--green3)}
+.sbar.warn{display:flex;border-color:rgba(255,200,87,.35);color:var(--yellow);background:var(--yellow3)}
+.sbar.risky{display:flex;border-color:rgba(255,61,90,.35);color:var(--red);background:var(--red3)}
+.sbar .sc{margin-left:auto;font-family:'Monaco',monospace;font-weight:700}
 
 /* ── ACCORDION ── */
-.acc-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:3px 0;user-select:none;font-size:.76em;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px}
-.acc-hdr:hover{color:var(--green)}
-.chevron{transition:transform .2s;font-size:.85em}
-.acc-body{overflow:hidden;max-height:0;transition:max-height .3s ease}
-.acc-body.open{max-height:600px}
+.acc-hdr{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:3px 0;font-size:.73em;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px;user-select:none}
+.acc-hdr:hover{color:var(--green2)}
+.acc-body{overflow:hidden;max-height:0;transition:max-height .28s ease}
+.acc-body.open{max-height:500px}
 
 /* ── STAT BOXES ── */
-.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.stat-grid2{grid-template-columns:repeat(2,1fr)}
-.sbox{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:11px 13px}
-.slabel{font-size:.68em;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px}
-.sval{font-size:1.2em;font-weight:700;font-family:'Monaco',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ssub{font-size:.72em;color:var(--muted);margin-top:2px;font-family:'Monaco',monospace}
-.green{color:var(--green)} .red{color:var(--red)} .yellow{color:var(--yellow)} .blue{color:var(--blue)}
+.sg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex-shrink:0}
+.sg2{grid-template-columns:repeat(2,1fr)}
+.sbox{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 13px}
+.sl{font-size:.67em;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.sv{font-size:1.2em;font-weight:700;font-family:'Monaco',monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ss{font-size:.7em;color:var(--muted);margin-top:1px;font-family:'Monaco',monospace}
 
 /* ── POSITION CARDS ── */
-.pos-list{display:flex;flex-direction:column;gap:10px}
-.pcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;position:relative;overflow:hidden}
+.pcard{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;position:relative;overflow:hidden;flex-shrink:0}
 .pcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--green)}
-.pcard.loss::before{background:var(--red)}
-.pcard.demo-pos{opacity:.85}
-.pcard.demo-pos::before{background:var(--blue)}
-.phdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
-.ptoken{font-family:'Monaco',monospace;font-size:.76em;color:var(--muted)}
+.pcard.dn::before{background:var(--red)}
+.pcard.demo::before{background:var(--blue)}
+.ph{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:9px}
+.ptok{font-family:'Monaco',monospace;font-size:.72em;color:var(--muted);margin-top:2px}
 .ppnl{font-weight:700;font-size:1em;font-family:'Monaco',monospace}
-.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px}
-.pstat .label{font-size:.67em;color:var(--muted)}
-.pstat .val{font-size:.82em;font-family:'Monaco',monospace;font-weight:600}
-
-/* progress */
-.prog-wrap{margin-bottom:8px}
-.prog-lbl{display:flex;justify-content:space-between;font-size:.68em;color:var(--muted);margin-bottom:3px}
-.prog-track{width:100%;height:5px;background:var(--bg);border-radius:3px;overflow:hidden}
-.prog-fill{height:100%;background:linear-gradient(90deg,var(--green),var(--blue));border-radius:3px;transition:width .5s}
-.prog-fill.sl{background:linear-gradient(90deg,var(--red),var(--yellow))}
-
-/* targets */
-.targets{display:flex;gap:6px;margin-bottom:8px}
-.tpill{flex:1;padding:5px 8px;border-radius:6px;text-align:center;font-size:.72em;font-family:'Monaco',monospace}
-.tpill.tp{background:var(--green3);border:1px solid rgba(0,245,160,.2);color:var(--green)}
-.tpill.sl{background:var(--red3);border:1px solid rgba(255,61,90,.2);color:var(--red)}
-.tpill.ts{background:var(--yellow3);border:1px solid rgba(255,200,87,.2);color:var(--yellow)}
-.tpill-l{font-size:.85em;opacity:.7}
+.pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:9px}
+.ps .l{font-size:.66em;color:var(--muted)}
+.ps .v{font-size:.8em;font-family:'Monaco',monospace;font-weight:600}
+.pw{width:100%;height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin-bottom:6px}
+.pf{height:100%;background:linear-gradient(90deg,var(--green),var(--blue));transition:width .5s;border-radius:2px}
+.pf.sl{background:linear-gradient(90deg,var(--red),var(--yellow))}
+.trow{display:flex;gap:5px;margin-bottom:7px}
+.tpill{flex:1;padding:5px 7px;border-radius:6px;text-align:center;font-size:.7em;font-family:'Monaco',monospace}
+.tpill.tp{background:var(--green3);border:1px solid rgba(0,245,160,.18);color:var(--green)}
+.tpill.sl{background:var(--red3);border:1px solid rgba(255,61,90,.18);color:var(--red)}
+.tpill.ts{background:var(--yellow3);border:1px solid rgba(255,200,87,.18);color:var(--yellow)}
+.tpill-l{opacity:.65;font-size:.88em}
 .tpill-v{font-weight:700;margin-top:1px}
 
-/* ── SCANNER CARDS ── */
-.scan-item{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
-.scan-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.scan-name{font-weight:700;font-size:.92em}
-.scan-sym{color:var(--muted);font-size:.8em}
-.scan-addr{font-family:'Monaco',monospace;font-size:.72em;color:var(--muted)}
-.scan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;font-size:.76em}
-.scan-stat .label{color:var(--muted)}
-.scan-stat .val{font-family:'Monaco',monospace;font-weight:600}
-.scan-btns{display:flex;gap:6px}
-.scan-btns .btn{padding:5px 10px;font-size:.76em}
+/* ── SCANNER ITEMS ── */
+.scan-feed{display:flex;flex-direction:column;gap:8px}
+.si{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:11px 13px;transition:border-color .2s}
+.si:hover{border-color:var(--border2)}
+.si-top{display:flex;align-items:flex-start;gap:8px;margin-bottom:7px}
+.si-name{font-weight:700;font-size:.9em;line-height:1.3}
+.si-sym{color:var(--muted);font-size:.78em}
+.si-addr{font-family:'Monaco',monospace;font-size:.68em;color:var(--muted);margin-top:1px}
+.si-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px;font-size:.73em}
+.si-stat .l{color:var(--muted)}
+.si-stat .v{font-family:'Monaco',monospace;font-weight:600;margin-top:1px}
+.si-btns{display:flex;gap:5px}
+.si-btns .btn{padding:4px 9px;font-size:.73em}
+.age-pill{font-size:.68em;padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.05);color:var(--muted);white-space:nowrap;flex-shrink:0}
 
 /* ── SETTINGS ── */
-.secret-row{position:relative}
-.secret-row .finput{padding-right:36px}
-.eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;padding:2px;font-size:.9em}
-.eye-btn:hover{color:var(--text)}
-.cfg-status{font-size:.72em;display:flex;align-items:center;gap:4px;margin-top:3px}
-.cfg-ok{color:var(--green)} .cfg-miss{color:var(--muted)}
-.section-divider{border-top:1px solid var(--border);margin:4px 0}
-
-/* ── LOG ── */
-.log-footer{height:180px;min-height:180px;border-top:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column}
-.log-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 14px;border-bottom:1px solid var(--border);font-size:.7em;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-.log-body{flex:1;overflow-y:auto;padding:6px 14px;font-family:'Monaco',monospace;font-size:.75em}
-.lentry{padding:2px 0;border-bottom:1px solid rgba(255,255,255,.03);line-height:1.55}
-.lt{color:var(--muted);margin-right:7px}
-.lentry.error .lm{color:var(--red)}
-.lentry.warning .lm{color:var(--yellow)}
-
-/* ── EMPTY STATE ── */
-.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:50px 20px;color:var(--muted);gap:10px;text-align:center}
-.empty .icon{font-size:2.5em}
-.empty p{font-size:.82em;line-height:1.6}
+.srow{position:relative}
+.srow .inp{padding-right:34px}
+.eye{position:absolute;right:9px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85em;padding:2px}
+.eye:hover{color:var(--text)}
+.cfg-st{font-size:.7em;margin-top:3px;display:flex;align-items:center;gap:4px}
+.cok{color:var(--green)} .cmiss{color:var(--muted)}
+.help{font-size:.72em;color:var(--muted);line-height:1.55;margin-bottom:8px;padding:8px;background:rgba(255,255,255,.03);border-radius:6px;border-left:2px solid var(--border2)}
+.help b{color:var(--muted2)}
 
 /* ── BADGES ── */
-.badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:.68em;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
-.badge-green{background:var(--green3);color:var(--green)}
-.badge-red{background:var(--red3);color:var(--red)}
-.badge-yellow{background:var(--yellow3);color:var(--yellow)}
-.badge-blue{background:var(--blue3);color:var(--blue)}
+.bdg{display:inline-block;padding:2px 6px;border-radius:4px;font-size:.68em;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.bg{background:var(--green3);color:var(--green)}
+.br{background:var(--red3);color:var(--red)}
+.by{background:var(--yellow3);color:var(--yellow)}
+.bb{background:var(--blue3);color:var(--blue)}
 
 /* ── PRESETS ── */
 .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.preset-btn{padding:7px 10px;background:var(--bg2);border:1px solid var(--border2);border-radius:7px;font-size:.76em;font-weight:600;color:var(--muted2);cursor:pointer;text-align:left;transition:all .15s}
-.preset-btn:hover{border-color:var(--green);color:var(--green)}
+.pre{padding:8px 10px;background:var(--bg2);border:1px solid var(--border2);border-radius:7px;font-size:.75em;font-weight:600;color:var(--muted2);cursor:pointer;text-align:left;transition:all .15s;line-height:1.4}
+.pre:hover{border-color:var(--green);color:var(--green)}
+
+/* ── SETUP BANNER ── */
+.setup-banner{background:var(--bg3);border:1px solid rgba(77,159,255,.25);border-radius:var(--radius);padding:18px;display:flex;flex-direction:column;gap:8px;flex-shrink:0}
+
+/* ── EMPTY ── */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 20px;color:var(--muted);gap:10px;text-align:center}
+.empty .ico{font-size:2.8em}
+.empty p{font-size:.8em;line-height:1.7}
+
+/* colors */
+.g{color:var(--green)} .r{color:var(--red)} .y{color:var(--yellow)} .b{color:var(--blue)}
+.mn{color:var(--muted)}
 
 /* ── TOAST ── */
-.toast-area{position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:7px}
-.toast{padding:10px 16px;border-radius:9px;font-size:.82em;font-weight:600;animation:slideIn .25s ease;max-width:300px;box-shadow:var(--shadow)}
-.toast.success{background:var(--green3);border:1px solid rgba(0,245,160,.3);color:var(--green)}
-.toast.error{background:var(--red3);border:1px solid rgba(255,61,90,.3);color:var(--red)}
-.toast.info{background:var(--blue3);border:1px solid rgba(77,159,255,.3);color:var(--blue)}
-@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:translateX(0);opacity:1}}
-
-.spin{width:12px;height:12px;border:2px solid rgba(255,255,255,.15);border-top-color:currentColor;border-radius:50%;animation:sp .6s linear infinite;display:inline-block}
+.ta{position:fixed;bottom:18px;right:18px;z-index:999;display:flex;flex-direction:column;gap:6px}
+.toast{padding:10px 15px;border-radius:9px;font-size:.81em;font-weight:600;animation:sin .22s ease;max-width:310px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.toast.ok{background:var(--green3);border:1px solid rgba(0,245,160,.3);color:var(--green)}
+.toast.err{background:var(--red3);border:1px solid rgba(255,61,90,.3);color:var(--red)}
+.toast.inf{background:var(--blue3);border:1px solid rgba(77,159,255,.3);color:var(--blue)}
+@keyframes sin{from{transform:translateX(25px);opacity:0}to{transform:none;opacity:1}}
+.spin{width:11px;height:11px;border:2px solid rgba(255,255,255,.15);border-top-color:currentColor;border-radius:50%;animation:sp .55s linear infinite;display:inline-block;vertical-align:middle}
 @keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
+<!-- ══ HEADER ══ -->
 <div class="hdr">
   <div class="logo">⚡ SNIPER PRO</div>
 
-  <!-- Mode toggle -->
   <div class="mode-group">
-    <button class="mode-btn" id="modeDemo"  onclick="setMode('demo')">👻 DEMO</button>
-    <button class="mode-btn active-semi" id="modeSemi"  onclick="setMode('semi')">⚡ SEMI-AUTO</button>
-    <button class="mode-btn" id="modeFull"  onclick="setMode('full')">🤖 FULL-AUTO</button>
+    <button class="mbtn" id="mDemo" onclick="setMode('demo')">👻 DEMO</button>
+    <button class="mbtn m-semi" id="mSemi" onclick="setMode('semi')">⚡ SEMI-AUTO</button>
+    <button class="mbtn" id="mFull" onclick="setMode('full')">🤖 FULL-AUTO</button>
   </div>
 
-  <div class="hdr-stats">
-    <div class="hstat"><div class="hstat-l">SOL Bal</div><div class="hstat-v blue" id="hSol">—</div></div>
-    <div class="hstat"><div class="hstat-l">Positions</div><div class="hstat-v" id="hPos">0</div></div>
-    <div class="hstat"><div class="hstat-l">P&L</div><div class="hstat-v" id="hPnl">$0</div></div>
+  <div class="hdr-right">
+    <div class="hstat"><div class="l">SOL Balance</div><div class="v b" id="hSol">—</div></div>
+    <div class="hstat"><div class="l">Positions</div><div class="v" id="hPos">0</div></div>
+    <div class="hstat"><div class="l">Total P&L</div><div class="v" id="hPnl">+$0</div></div>
     <div style="display:flex;align-items:center;gap:5px">
-      <div class="live-dot on" id="connDot"></div>
-      <span style="font-size:.72em;color:var(--muted)" id="connLbl">LIVE</span>
+      <div class="dot on" id="cDot"></div>
+      <span style="font-size:.7em;color:var(--muted)" id="cLbl">LIVE</span>
     </div>
   </div>
 </div>
 
-<!-- LAYOUT -->
-<div class="layout">
+<!-- ══ BODY ══ -->
+<div class="root">
+<div class="body-row">
 
-  <!-- ══ SIDEBAR ══ -->
+  <!-- ════ SIDEBAR ════ -->
   <div class="sidebar">
     <div class="stabs">
-      <div class="stab active" data-panel="trade" onclick="switchSTab(this,'trade')">🎯 Trade</div>
-      <div class="stab" data-panel="scanner" onclick="switchSTab(this,'scanner')">🔍 Scanner</div>
-      <div class="stab" data-panel="settings" onclick="switchSTab(this,'settings')">⚙️ Settings</div>
+      <div class="stab on" data-t="trade" onclick="sTab(this,'trade')">🎯 Trade</div>
+      <div class="stab" data-t="scanner" onclick="sTab(this,'scanner')">📡 Scanner</div>
+      <div class="stab" data-t="settings" onclick="sTab(this,'settings')">⚙️ Settings</div>
     </div>
 
     <!-- ── TRADE TAB ── -->
-    <div class="stab-panel active" id="stab-trade">
-
+    <div class="stab-body on" id="sb-trade">
       <div class="card">
-        <div class="card-title">🎯 Snipe Token</div>
+        <div class="ctitle">🎯 Snipe Token</div>
         <div class="frow">
-          <div class="flabel">Token Address / Mint</div>
-          <input class="finput" id="tokenAddr" placeholder="Pump.fun mint address…" oninput="clearSafetyBar()">
+          <div class="flbl">Token Address / Mint</div>
+          <input class="inp" id="tokAddr" placeholder="Paste Pump.fun token address…" oninput="clearSBar()">
         </div>
-        <div id="safetyBar" class="sbar"></div>
-        <button class="btn btn-ghost" id="checkBtn" onclick="runCheck()" style="width:100%;margin-bottom:12px">🔍 Safety Check</button>
+        <div id="sBar" class="sbar"></div>
+        <button class="btn btn-gh" id="checkBtn" onclick="doCheck()" style="width:100%;margin-bottom:10px">🔍 Safety Check</button>
 
-        <div class="fgrid">
+        <div class="g2" style="margin-bottom:8px">
           <div class="frow" style="margin:0">
-            <div class="flabel">Buy Amount (SOL)</div>
-            <input class="finput" id="buyAmt" type="number" placeholder="0.05" step="0.01" min="0.001">
+            <div class="flbl">Buy (SOL) <b id="lBuy"></b></div>
+            <input class="inp" id="buyAmt" type="number" placeholder="0.05" step="0.01" min="0.001">
           </div>
           <div class="frow" style="margin:0">
-            <div class="flabel">Take Profit %</div>
-            <input class="finput" id="tpPct" type="number" placeholder="75" step="1" min="1" value="75">
+            <div class="flbl">Take Profit %</div>
+            <input class="inp" id="tpPct" type="number" placeholder="75" value="75">
           </div>
         </div>
-        <div class="fgrid" style="margin-top:8px">
+        <div class="g2" style="margin-bottom:8px">
           <div class="frow" style="margin:0">
-            <div class="flabel">Stop Loss %</div>
-            <input class="finput" id="slPct" type="number" placeholder="15" step="1" min="1" value="15">
+            <div class="flbl">Stop Loss %</div>
+            <input class="inp" id="slPct" type="number" placeholder="15" value="15">
           </div>
           <div class="frow" style="margin:0">
-            <div class="flabel">Trailing Stop %</div>
-            <input class="finput" id="tsPct" type="number" placeholder="20" step="1" min="0" value="20">
+            <div class="flbl">Trailing Stop %</div>
+            <input class="inp" id="tsPct" type="number" placeholder="20" value="20">
           </div>
         </div>
 
-        <!-- Advanced -->
-        <div style="margin-top:12px">
+        <div>
           <div class="acc-hdr" onclick="toggleAcc('adv')">
-            <span>⚙️ Advanced</span><span class="chevron" id="adv-chev">▾</span>
+            <span>⚙️ Advanced (fees, slippage)</span><span id="adv-ch">▾</span>
           </div>
           <div class="acc-body" id="adv-body" style="margin-top:8px">
-            <div class="fgrid3" style="margin-bottom:8px">
+            <div class="g3" style="margin-bottom:8px">
               <div class="frow" style="margin:0">
-                <div class="flabel">Slippage %</div>
-                <input class="finput" id="slipPct" type="number" placeholder="10" step="1" min="1" max="99" value="10">
+                <div class="flbl" style="font-size:.7em">Slip %</div>
+                <input class="inp" id="slipPct" type="number" placeholder="10" value="10" min="1" max="99">
               </div>
               <div class="frow" style="margin:0">
-                <div class="flabel">Buy Fee (μL)</div>
-                <input class="finput" id="buyFee" type="number" placeholder="100000" step="50000" value="100000">
+                <div class="flbl" style="font-size:.7em">Buy Fee μL</div>
+                <input class="inp" id="buyFee" type="number" placeholder="100000" value="100000" step="50000">
               </div>
               <div class="frow" style="margin:0">
-                <div class="flabel">Sell Fee (μL)</div>
-                <input class="finput" id="sellFee" type="number" placeholder="800000" step="100000" value="800000">
+                <div class="flbl" style="font-size:.7em">Sell Fee μL</div>
+                <input class="inp" id="sellFee" type="number" placeholder="800000" value="800000" step="100000">
               </div>
             </div>
-            <label style="display:flex;align-items:center;gap:7px;font-size:.78em;color:var(--muted);cursor:pointer">
-              <input type="checkbox" id="skipSafety" style="accent-color:var(--red)">
-              Skip safety (risky)
+            <label style="display:flex;align-items:center;gap:7px;font-size:.77em;color:var(--muted);cursor:pointer">
+              <input type="checkbox" id="skipSafe" style="accent-color:var(--red)"> Skip safety check
             </label>
           </div>
         </div>
 
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn btn-green" id="startBtn" onclick="snipe()">🚀 SNIPE</button>
-          <button class="btn btn-red" id="stopAllBtn" onclick="stopAll()" disabled>⛔ STOP ALL</button>
+        <div class="brow" style="margin-top:11px">
+          <button class="btn btn-g" id="snipeBtn" onclick="doSnipe()">🚀 SNIPE</button>
+          <button class="btn btn-r" id="stopAllBtn" onclick="doStopAll()" disabled>⛔ STOP ALL</button>
         </div>
       </div>
 
-      <!-- Presets -->
       <div class="card">
-        <div class="card-title">⚡ Quick Presets</div>
+        <div class="ctitle">⚡ Quick Presets</div>
         <div class="presets">
-          <button class="preset-btn" onclick="preset('safe')">🛡️ Safe<br><span style="font-size:.85em;opacity:.7">TP50 SL20</span></button>
-          <button class="preset-btn" onclick="preset('degen')">🔥 Degen<br><span style="font-size:.85em;opacity:.7">TP200 SL30 TS15</span></button>
-          <button class="preset-btn" onclick="preset('scalp')">⚡ Scalp<br><span style="font-size:.85em;opacity:.7">TP20 SL10</span></button>
-          <button class="preset-btn" onclick="preset('moon')">🌙 Moon<br><span style="font-size:.85em;opacity:.7">TP500 SL25 TS20</span></button>
+          <button class="pre" onclick="preset('safe')">🛡️ Safe<br><span style="opacity:.65;font-size:.9em">TP 50% · SL 20%</span></button>
+          <button class="pre" onclick="preset('degen')">🔥 Degen<br><span style="opacity:.65;font-size:.9em">TP 200% · SL 30% · TS 15%</span></button>
+          <button class="pre" onclick="preset('scalp')">⚡ Scalp<br><span style="opacity:.65;font-size:.9em">TP 20% · SL 10%</span></button>
+          <button class="pre" onclick="preset('moon')">🌙 Moon<br><span style="opacity:.65;font-size:.9em">TP 500% · SL 25% · TS 20%</span></button>
         </div>
       </div>
 
-      <!-- Wallet -->
       <div class="card">
-        <div class="card-title">👛 Wallet</div>
-        <div style="font-family:'Monaco',monospace;font-size:.73em;color:var(--muted);word-break:break-all" id="walletAddr">—</div>
+        <div class="ctitle">👛 Wallet</div>
+        <div style="font-family:'Monaco',monospace;font-size:.72em;color:var(--muted);word-break:break-all;line-height:1.6" id="wAddr">Not configured — add Private Key in Settings ⚙️</div>
       </div>
     </div>
 
     <!-- ── SCANNER TAB ── -->
-    <div class="stab-panel" id="stab-scanner">
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-blue" onclick="startScanner()" style="flex:1">🔍 Start Scan</button>
-        <button class="btn btn-ghost" onclick="loadScanResults()">↻ Refresh</button>
+    <div class="stab-body" id="sb-scanner">
+      <div style="display:flex;gap:7px">
+        <button class="btn btn-b" onclick="startScan()" style="flex:1">📡 Start Scanning</button>
+        <button class="btn btn-gh" onclick="loadScan()">↻</button>
       </div>
-      <div style="font-size:.76em;color:var(--muted);line-height:1.5">
-        Scans Pump.fun (new launches) + DexScreener (trending) every 15s in Full-Auto mode. In Semi/Demo mode, click Refresh to update.
+      <div class="help">
+        Scans <b>Pump.fun</b> (newest launches) + <b>DexScreener</b> (new pairs) in real-time.<br>
+        Only shows tokens <b>launched in the last 2 hours</b>. Scored on mint authority, freeze authority, and holder concentration.<br>
+        <b>Semi-Auto:</b> Click Snipe per token. &nbsp;<b>Full-Auto:</b> Buys automatically on PASS.
       </div>
-      <div id="scanList">
-        <div class="empty"><div class="icon">🔍</div><p>No scan results yet.<br>Start the scanner or switch to Full-Auto mode.</p></div>
+      <div id="scanFeed">
+        <div class="empty"><div class="ico">📡</div><p>Click Start Scanning to fetch real-time launches.<br>New tokens appear every 20 seconds.</p></div>
       </div>
     </div>
 
     <!-- ── SETTINGS TAB ── -->
-    <div class="stab-panel" id="stab-settings">
+    <div class="stab-body" id="sb-settings">
 
       <!-- Wallet & RPC -->
       <div class="card">
-        <div class="card-title">🔑 Wallet & RPC</div>
+        <div class="ctitle">🔑 Wallet & RPC</div>
+
+        <div class="help">Your private key never leaves the server. It's stored in <b>.env</b> on disk only — your browser only sees a masked preview.</div>
+
         <div class="frow">
-          <div class="flabel">Solana Private Key <span style="color:var(--red);font-size:.85em">(server-side only)</span></div>
-          <div class="secret-row">
-            <input class="finput" id="cfgPrivKey" type="password" placeholder="Base58 private key…">
-            <button class="eye-btn" onclick="toggleVis('cfgPrivKey',this)">👁</button>
+          <div class="flbl">Solana Private Key <span style="color:var(--red);font-size:.85em">★ required for live trades</span></div>
+          <div class="srow">
+            <input class="inp" id="cfgPK" type="password" placeholder="Base58 private key from Phantom → Settings → Export…">
+            <button class="eye" onclick="togVis('cfgPK',this)">👁</button>
           </div>
-          <div class="cfg-status" id="cfgPrivKeyStatus"></div>
+          <div class="cfg-st" id="stPK"></div>
         </div>
+
         <div class="frow">
-          <div class="flabel">RPC Endpoint URL</div>
-          <input class="finput" id="cfgRpc" placeholder="https://api.mainnet-beta.solana.com">
-          <div class="cfg-status" id="cfgRpcStatus"></div>
+          <div class="flbl">RPC Endpoint URL <span style="color:var(--muted);font-size:.85em">★ required for live trades</span></div>
+          <input class="inp" id="cfgRpc" placeholder="https://mainnet.helius-rpc.com/?api-key=YOUR_KEY">
+          <div class="cfg-st" id="stRpc"></div>
+          <div class="help" style="margin-top:4px">Free: <b>public Solana</b> (slow, rate-limited). Fast: <b>Helius / QuickNode / Shyft</b>. Get a free Helius key at helius.dev.</div>
         </div>
+
         <div class="frow">
-          <div class="flabel">Jito Block Engine URL <span style="color:var(--muted);font-size:.85em">(optional)</span></div>
-          <input class="finput" id="cfgJito" placeholder="https://mainnet.block-engine.jito.wtf">
-          <div class="cfg-status" id="cfgJitoStatus"></div>
+          <div class="flbl">Jito Block Engine URL <span style="color:var(--muted);font-size:.85em">(optional — leave blank if unsure)</span></div>
+          <input class="inp" id="cfgJito" placeholder="https://mainnet.block-engine.jito.wtf">
+          <div class="cfg-st" id="stJito"></div>
+          <div class="help" style="margin-top:4px"><b>What is Jito?</b> Jito lets your transaction skip the public mempool and land in the next block. The bot already includes a 0.001 SOL Jito tip on every TX regardless. This URL enables full <i>bundle submission</i> — faster but optional. Leave blank to still benefit from the tip.</div>
         </div>
       </div>
 
       <!-- Telegram -->
       <div class="card">
-        <div class="card-title">📱 Telegram Notifications</div>
-        <div style="font-size:.76em;color:var(--muted);margin-bottom:10px;line-height:1.6">
-          1. Message <b>@BotFather</b> → /newbot → copy token<br>
-          2. Message <b>@userinfobot</b> to get your Chat ID<br>
-          3. Paste both below and click Send Test
+        <div class="ctitle">📱 Telegram Notifications</div>
+        <div class="help">
+          <b>Step 1:</b> Message <b>@BotFather</b> on Telegram → /newbot → copy the token<br>
+          <b>Step 2:</b> Message <b>@userinfobot</b> → copy your numeric Chat ID<br>
+          <b>Step 3:</b> Paste both below, save, then hit Send Test
         </div>
         <div class="frow">
-          <div class="flabel">Bot Token</div>
-          <div class="secret-row">
-            <input class="finput" id="cfgTgToken" type="password" placeholder="123456:ABCdef…">
-            <button class="eye-btn" onclick="toggleVis('cfgTgToken',this)">👁</button>
+          <div class="flbl">Bot Token (from @BotFather)</div>
+          <div class="srow">
+            <input class="inp" id="cfgTgT" type="password" placeholder="1234567890:ABCdef-xyz…">
+            <button class="eye" onclick="togVis('cfgTgT',this)">👁</button>
           </div>
-          <div class="cfg-status" id="cfgTgTokenStatus"></div>
+          <div class="cfg-st" id="stTgT"></div>
         </div>
         <div class="frow">
-          <div class="flabel">Chat ID</div>
-          <input class="finput" id="cfgTgChat" placeholder="Your Telegram numeric ID">
-          <div class="cfg-status" id="cfgTgChatStatus"></div>
+          <div class="flbl">Chat ID (from @userinfobot — numeric)</div>
+          <input class="inp" id="cfgTgC" placeholder="e.g. 123456789">
+          <div class="cfg-st" id="stTgC"></div>
         </div>
-        <div class="btn-row">
-          <button class="btn btn-blue" onclick="testTelegram()">📨 Send Test</button>
-        </div>
+        <button class="btn btn-b" onclick="testTg()">📨 Send Test Message</button>
       </div>
 
-      <!-- Auto-snipe defaults -->
+      <!-- Full-Auto defaults -->
       <div class="card">
-        <div class="card-title">🤖 Full-Auto Defaults</div>
-        <div class="fgrid">
+        <div class="ctitle">🤖 Full-Auto Defaults</div>
+        <div class="help">Used when Full-Auto mode automatically buys a token that passes all filters.</div>
+        <div class="g2" style="margin-bottom:8px">
           <div class="frow" style="margin:0">
-            <div class="flabel">Auto Buy (SOL)</div>
-            <input class="finput" id="cfgAutoSol" type="number" placeholder="0.05" step="0.01" value="0.05">
+            <div class="flbl">Buy Amount (SOL)</div>
+            <input class="inp" id="cfgAS" type="number" placeholder="0.05" step="0.01" value="0.05">
           </div>
           <div class="frow" style="margin:0">
-            <div class="flabel">Auto TP %</div>
-            <input class="finput" id="cfgAutoTp" type="number" placeholder="75" value="75">
+            <div class="flbl">Take Profit %</div>
+            <input class="inp" id="cfgAT" type="number" placeholder="75" value="75">
           </div>
         </div>
-        <div class="fgrid" style="margin-top:8px">
+        <div class="g2">
           <div class="frow" style="margin:0">
-            <div class="flabel">Auto SL %</div>
-            <input class="finput" id="cfgAutoSl" type="number" placeholder="15" value="15">
+            <div class="flbl">Stop Loss %</div>
+            <input class="inp" id="cfgAL" type="number" placeholder="15" value="15">
           </div>
           <div class="frow" style="margin:0">
-            <div class="flabel">Auto TS %</div>
-            <input class="finput" id="cfgAutoTs" type="number" placeholder="20" value="20">
+            <div class="flbl">Trailing Stop %</div>
+            <input class="inp" id="cfgATs" type="number" placeholder="20" value="20">
           </div>
         </div>
       </div>
 
-      <button class="btn btn-green" onclick="saveConfig()">💾 Save All Settings</button>
+      <button class="btn btn-g" onclick="saveConfig()">💾 Save All Settings</button>
     </div>
   </div>
 
-  <!-- ══ MAIN ══ -->
+  <!-- ════ MAIN ════ -->
   <div class="main">
     <div class="mtabs">
-      <div class="mtab active" data-panel="positions" onclick="switchMTab(this,'positions')">📊 Live Positions</div>
-      <div class="mtab" data-panel="stats" onclick="switchMTab(this,'stats')">📈 Overview</div>
+      <div class="mtab on" data-p="pos" onclick="mTab(this,'pos')">📊 Live Positions</div>
+      <div class="mtab" data-p="ov" onclick="mTab(this,'ov')">📈 Overview</div>
     </div>
 
-    <!-- ── Positions panel ── -->
-    <div class="mpanel active" id="mpanel-positions">
-      <div class="stat-grid" style="margin-bottom:2px">
-        <div class="sbox"><div class="slabel">Active</div><div class="sval" id="sActive">0</div></div>
-        <div class="sbox"><div class="slabel">Total P&L</div><div class="sval" id="sPnl">$0.00</div></div>
-        <div class="sbox"><div class="slabel">Portfolio</div><div class="sval" id="sPort">$0.00</div></div>
+    <!-- ── Positions ── -->
+    <div class="mpanel on" id="mp-pos">
+
+      <!-- Stats row -->
+      <div class="sg" style="flex-shrink:0">
+        <div class="sbox"><div class="sl">Active Positions</div><div class="sv" id="sAct">0</div></div>
+        <div class="sbox"><div class="sl">Total P&L</div><div class="sv g" id="sPnl">+$0.00</div></div>
+        <div class="sbox"><div class="sl">Portfolio Value</div><div class="sv" id="sPort">$0.00</div></div>
       </div>
-      <div class="pos-list" id="posList">
-        <div class="empty"><div class="icon">🎯</div><p>No active positions.<br>Enter a token and hit SNIPE to start.</p></div>
+
+      <!-- Setup banner (shown when no wallet) -->
+      <div class="setup-banner" id="setupBanner" style="display:none">
+        <div style="font-size:.9em;font-weight:700;color:var(--blue)">⚡ Quick Setup — 2 steps to go live</div>
+        <div style="font-size:.78em;color:var(--muted2);line-height:1.7">
+          <b style="color:var(--text)">1.</b> Click <b style="color:var(--text)">⚙️ Settings</b> → paste your Solana Private Key and RPC URL → Save<br>
+          <b style="color:var(--text)">2.</b> Optionally add Telegram bot to get buy/sell alerts on your phone<br>
+          <b style="color:var(--text)">3.</b> Switch to <b style="color:var(--yellow)">DEMO</b> mode first to test without spending real SOL
+        </div>
+        <button class="btn btn-b" onclick="sTab(document.querySelector('[data-t=settings]'),'settings')" style="width:auto;padding:7px 16px;font-size:.8em">⚙️ Open Settings</button>
+      </div>
+
+      <!-- Position list -->
+      <div id="posList" style="display:flex;flex-direction:column;gap:9px;flex-shrink:0">
+        <div class="empty"><div class="ico">🎯</div><p>No active positions yet.<br>Enter a token address and click SNIPE.</p></div>
       </div>
     </div>
 
-    <!-- ── Overview panel ── -->
-    <div class="mpanel" id="mpanel-stats">
-      <div class="stat-grid">
-        <div class="sbox"><div class="slabel">Active Positions</div><div class="sval" id="ovActive">0</div></div>
-        <div class="sbox"><div class="slabel">Total P&L (USD)</div><div class="sval" id="ovPnl">$0.00</div></div>
-        <div class="sbox"><div class="slabel">Portfolio Value</div><div class="sval" id="ovPort">$0.00</div></div>
-        <div class="sbox"><div class="slabel">SOL Balance</div><div class="sval blue" id="ovSol">—</div></div>
-        <div class="sbox"><div class="slabel">Mode</div><div class="sval" id="ovMode">—</div></div>
-        <div class="sbox"><div class="slabel">Scanner</div><div class="sval" id="ovScan">—</div></div>
+    <!-- ── Overview ── -->
+    <div class="mpanel" id="mp-ov">
+      <div class="sg">
+        <div class="sbox"><div class="sl">Active</div><div class="sv" id="ovAct">0</div></div>
+        <div class="sbox"><div class="sl">P&L USD</div><div class="sv" id="ovPnl">$0</div></div>
+        <div class="sbox"><div class="sl">Portfolio</div><div class="sv" id="ovPort">$0</div></div>
+        <div class="sbox"><div class="sl">SOL Balance</div><div class="sv b" id="ovSol">—</div></div>
+        <div class="sbox"><div class="sl">Mode</div><div class="sv" id="ovMode">SEMI</div></div>
+        <div class="sbox"><div class="sl">Scanner</div><div class="sv" id="ovScan">Idle</div></div>
       </div>
       <div class="card">
-        <div class="card-title">ℹ️ Bot Info</div>
-        <div style="font-size:.8em;color:var(--muted2);line-height:1.8">
-          <div>⚡ Compute limit: <b style="color:var(--text)">200,000 CU</b> (never 1.4M default)</div>
-          <div>🎩 Jito tip: <b style="color:var(--text)">0.001 SOL</b> per trade — skips public mempool</div>
-          <div>♻️ Rent recovery: <b style="color:var(--text)">CloseAccount</b> bundled in every sell (~0.002 SOL back)</div>
-          <div>🛡️ Buy fee: <b style="color:var(--text)">100k μL</b> | Sell fee: <b style="color:var(--text)">800k μL</b> (emergency exit power)</div>
-          <div>🔒 Secrets: <b style="color:var(--text)">server-side only</b> — never sent to browser</div>
+        <div class="ctitle">⚡ Execution Specs</div>
+        <div style="font-size:.78em;color:var(--muted2);line-height:2">
+          <div>🧮 Compute limit: <b style="color:var(--text)">200,000 CU</b> <span style="color:var(--muted)">(hard cap — prevents 1.4M default overpay)</span></div>
+          <div>🎩 Jito tip: <b style="color:var(--text)">0.001 SOL</b> per trade <span style="color:var(--muted)">(skips public mempool)</span></div>
+          <div>♻️ Rent recovery: <b style="color:var(--text)">CloseAccount in every sell</b> <span style="color:var(--muted)">(~0.002 SOL returned)</span></div>
+          <div>⚡ Buy priority: <b style="color:var(--text)">100k μL</b> &nbsp;|&nbsp; Sell priority: <b style="color:var(--text)">800k μL</b> <span style="color:var(--muted)">(emergency exit power)</span></div>
+          <div>🔒 Slippage default: <b style="color:var(--text)">10%</b> <span style="color:var(--muted)">(MEV-competitive on fast candles)</span></div>
+          <div>🛡️ Safety: <b style="color:var(--text)">RugCheck + top-10 holders + mint authority + freeze authority</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ctitle">📡 Scanner Info</div>
+        <div style="font-size:.78em;color:var(--muted2);line-height:2">
+          <div>📡 Sources: <b style="color:var(--text)">Pump.fun</b> (newest launches) + <b style="color:var(--text)">DexScreener</b> (new pairs)</div>
+          <div>⏱ Age filter: <b style="color:var(--text)">last 2 hours only</b> — old tokens are excluded automatically</div>
+          <div>🔄 Refresh: every <b style="color:var(--text)">20 seconds</b> — seen-set resets hourly</div>
+          <div>🛡️ On-chain checks: <b style="color:var(--text)">mint auth + freeze auth + top-10 holder %</b></div>
         </div>
       </div>
     </div>
 
-    <!-- Log -->
-    <div class="log-footer">
-      <div class="log-hdr">
-        <span>📋 Activity Log</span>
-        <button class="btn-ghost btn" style="padding:2px 8px;font-size:.7em" onclick="clearLog()">Clear</button>
-      </div>
-      <div class="log-body" id="logBody">
-        <div class="lentry info"><span class="lt">--:--:--</span><span class="lm">⚡ Sniper Pro initialized</span></div>
-      </div>
-    </div>
+  </div><!-- end main -->
+</div><!-- end body-row -->
+
+<!-- ── LOG FOOTER ── -->
+<div class="log-footer">
+  <div class="log-hdr">
+    <span>📋 Activity Log</span>
+    <button class="btn-gh btn" style="padding:2px 9px;font-size:.68em" onclick="clearLog()">Clear</button>
+  </div>
+  <div class="log-body" id="logBody">
+    <div class="le info"><span class="lt">--:--:--</span><span class="lm">⚡ Sniper Pro initialized</span></div>
   </div>
 </div>
+</div><!-- end root -->
 
-<div class="toast-area" id="toasts"></div>
+<div class="ta" id="ta"></div>
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let currentMode = 'semi';
-let seenLogs = 0;
-let pollTimer = null;
+let mode = 'semi', seenLogs = 0, walletSet = false;
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
-function switchSTab(el, id) {
-  document.querySelectorAll('.stab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.stab-panel').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('stab-' + id).classList.add('active');
-  if (id === 'scanner') loadScanResults();
+function sTab(el, id) {
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.stab-body').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('sb-' + id).classList.add('on');
+  if (id === 'scanner') { loadScan(); startScan(); }
   if (id === 'settings') loadConfig();
 }
-function switchMTab(el, id) {
-  document.querySelectorAll('.mtab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.mpanel').forEach(p => p.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById('mpanel-' + id).classList.add('active');
+function mTab(el, id) {
+  document.querySelectorAll('.mtab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.mpanel').forEach(p => p.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('mp-' + id).classList.add('on');
 }
-
-// ── Accordion ─────────────────────────────────────────────────────────────
 function toggleAcc(id) {
-  const body = document.getElementById(id + '-body');
-  const chev = document.getElementById(id + '-chev');
-  body.classList.toggle('open');
-  chev.textContent = body.classList.contains('open') ? '▴' : '▾';
+  const b = document.getElementById(id + '-body');
+  const c = document.getElementById(id + '-ch');
+  b.classList.toggle('open');
+  c.textContent = b.classList.contains('open') ? '▴' : '▾';
 }
 
 // ── Mode ───────────────────────────────────────────────────────────────────
 async function setMode(m) {
-  currentMode = m;
+  mode = m;
+  const map = { demo: 'm-demo', semi: 'm-semi', full: 'm-full' };
   ['demo','semi','full'].forEach(x => {
-    const btn = document.getElementById('mode' + x.charAt(0).toUpperCase() + x.slice(1));
-    btn.className = 'mode-btn' + (x === m ? ` active-${x}` : '');
+    const b = document.getElementById('m' + x.charAt(0).toUpperCase() + x.slice(1));
+    b.className = 'mbtn' + (x === m ? ' ' + map[x] : '');
   });
-  try {
-    await fetch('/api/mode', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({mode:m})});
-  } catch(e) {}
-  toast(m === 'demo' ? '👻 Demo mode — paper trading' : m === 'full' ? '🤖 Full-Auto enabled' : '⚡ Semi-Auto mode', 'info', 3000);
-  if (m === 'full') { startScanner(); switchSTab(document.querySelector('[data-panel="scanner"]'), 'scanner'); }
+  try { await fetch('/api/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: m }) }); } catch {}
+  const msgs = { demo: '👻 Demo mode — paper trading, no real SOL spent', semi: '⚡ Semi-Auto — you trigger buys, bot handles TP/SL', full: '🤖 Full-Auto — autonomous scan + buy + sell' };
+  toast(msgs[m], 'inf', 3500);
+  if (m === 'full') { startScan(); sTab(document.querySelector('[data-t=scanner]'), 'scanner'); }
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
-function now() { return new Date().toLocaleTimeString(); }
-function fmtUsd(n) {
+function fU(n) {
   if (!n && n !== 0) return '$—';
-  const v = Math.abs(n);
-  if (v >= 1e9) return (n<0?'-':'') + '$' + (v/1e9).toFixed(2) + 'B';
-  if (v >= 1e6) return (n<0?'-':'') + '$' + (v/1e6).toFixed(2) + 'M';
-  if (v >= 1e3) return (n<0?'-':'') + '$' + (v/1e3).toFixed(2) + 'K';
-  if (v >= 1)   return (n<0?'-':'') + '$' + v.toFixed(2);
-  return (n<0?'-':'') + '$' + v.toFixed(10).replace(/0+$/,'').replace(/\.$/,'');
+  const a = Math.abs(n), s = n < 0 ? '-' : '';
+  if (a >= 1e6) return s + '$' + (a/1e6).toFixed(2) + 'M';
+  if (a >= 1e3) return s + '$' + (a/1e3).toFixed(2) + 'K';
+  if (a >= 1)   return s + '$' + a.toFixed(2);
+  return s + '$' + a.toFixed(10).replace(/0+$/, '').replace(/\.$/, '');
 }
-function fmtPct(n) { return (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%'; }
-function shortAddr(a) { if (!a) return '—'; return a.slice(0,6)+'…'+a.slice(-4); }
-function cls(n) { return n >= 0 ? 'green' : 'red'; }
-function fmt(n, d=2) { return n !== undefined ? Number(n).toFixed(d) : '—'; }
+function fP(n) { return (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%'; }
+function sA(a) { if (!a) return '—'; return a.slice(0,6) + '…' + a.slice(-4); }
+function gc(n) { return n >= 0 ? 'g' : 'r'; }
+function f(n,d=2) { return n !== undefined ? Number(n).toFixed(d) : '—'; }
 
-function toast(msg, type='info', dur=4000) {
+function toast(msg, type = 'inf', dur = 4000) {
   const el = document.createElement('div');
   el.className = 'toast ' + type;
   el.textContent = msg;
-  document.getElementById('toasts').appendChild(el);
+  document.getElementById('ta').appendChild(el);
   setTimeout(() => el.remove(), dur);
 }
-
-function addLog(t, msg, lvl='info') {
+function addLog(t, msg, lvl = 'info') {
   const b = document.getElementById('logBody');
   const el = document.createElement('div');
-  el.className = 'lentry ' + lvl;
+  el.className = 'le ' + lvl;
   el.innerHTML = `<span class="lt">${t}</span><span class="lm">${msg}</span>`;
   b.appendChild(el);
   b.scrollTop = b.scrollHeight;
-  while (b.children.length > 250) b.removeChild(b.firstChild);
+  while (b.children.length > 300) b.removeChild(b.firstChild);
 }
 function clearLog() { document.getElementById('logBody').innerHTML = ''; }
 
-// ── Safety check ───────────────────────────────────────────────────────────
-function clearSafetyBar() { document.getElementById('safetyBar').className = 'sbar'; }
-
-async function runCheck() {
-  const addr = document.getElementById('tokenAddr').value.trim();
-  if (!addr) { toast('Enter a token address first', 'error'); return; }
+// ── Safety ─────────────────────────────────────────────────────────────────
+function clearSBar() { document.getElementById('sBar').className = 'sbar'; }
+async function doCheck() {
+  const addr = document.getElementById('tokAddr').value.trim();
+  if (!addr) { toast('Enter a token address', 'err'); return; }
   const btn = document.getElementById('checkBtn');
   btn.innerHTML = '<span class="spin"></span> Checking…'; btn.disabled = true;
   try {
-    const r = await fetch('/api/check', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token_address: addr})});
-    const d = await r.json();
-    renderSafetyBar(d);
-  } catch(e) { toast('Safety check failed: ' + e.message, 'error'); }
+    const r = await fetch('/api/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token_address: addr }) });
+    renderSBar(await r.json());
+  } catch(e) { toast('Check failed: ' + e.message, 'err'); }
   finally { btn.textContent = '🔍 Safety Check'; btn.disabled = false; }
 }
-
-function renderSafetyBar(d) {
-  const bar = document.getElementById('safetyBar');
-  const score = d.score || 0;
-  const warn  = (d.warnings || [])[0] || '';
-  const cls   = score >= 70 ? 'safe' : score >= 40 ? 'warn' : 'risky';
-  const icon  = score >= 70 ? '✅' : score >= 40 ? '⚠️' : '⛔';
-  const label = score >= 70 ? 'SAFE' : score >= 40 ? 'RISKY' : 'DANGER';
+function renderSBar(d) {
+  const bar = document.getElementById('sBar');
+  const s = d.score || 0, w = (d.warnings || [])[0] || '';
+  const cls = s >= 70 ? 'safe' : s >= 40 ? 'warn' : 'risky';
+  const icon = s >= 70 ? '✅' : s >= 40 ? '⚠️' : '⛔';
+  const lbl  = s >= 70 ? 'SAFE' : s >= 40 ? 'CAUTION' : 'DANGER';
   bar.className = 'sbar ' + cls;
-  bar.innerHTML = `${icon} ${label}${warn ? ' — ' + warn : ''}<span class="sc">${score}/100</span>`;
+  bar.innerHTML = `${icon} ${lbl}${w ? ' — ' + w : ''}<span class="sc">${s}/100</span>`;
 }
 
 // ── Presets ────────────────────────────────────────────────────────────────
-function preset(name) {
-  const p = {safe:{tp:50,sl:20,ts:0,slip:10},degen:{tp:200,sl:30,ts:15,slip:20},scalp:{tp:20,sl:10,ts:0,slip:10},moon:{tp:500,sl:25,ts:20,slip:15}};
-  const v = p[name]; if (!v) return;
+function preset(n) {
+  const p = { safe:{tp:50,sl:20,ts:0}, degen:{tp:200,sl:30,ts:15}, scalp:{tp:20,sl:10,ts:0}, moon:{tp:500,sl:25,ts:20} };
+  const v = p[n]; if (!v) return;
   document.getElementById('tpPct').value = v.tp;
   document.getElementById('slPct').value = v.sl;
   document.getElementById('tsPct').value = v.ts;
-  document.getElementById('slipPct').value = v.slip;
-  toast(`Preset "${name}" applied`, 'info', 2000);
+  toast(`Preset "${n}" applied`, 'inf', 2000);
 }
 
 // ── Snipe ──────────────────────────────────────────────────────────────────
-async function snipe(overrideAddr) {
-  const addr   = overrideAddr || document.getElementById('tokenAddr').value.trim();
-  const amount = parseFloat(document.getElementById('buyAmt').value);
+async function doSnipe(overrideAddr) {
+  const addr   = overrideAddr || document.getElementById('tokAddr').value.trim();
+  const amt    = parseFloat(document.getElementById('buyAmt').value);
   const tp     = parseFloat(document.getElementById('tpPct').value);
   const sl     = parseFloat(document.getElementById('slPct').value);
   const ts     = parseFloat(document.getElementById('tsPct').value) || 0;
-  const slip   = parseFloat(document.getElementById('slipPct').value) / 100 || 0.10;
-  const buyFee = parseInt(document.getElementById('buyFee').value) || 100000;
-  const sellFee= parseInt(document.getElementById('sellFee').value) || 800000;
-  const skip   = document.getElementById('skipSafety').checked;
+  const slip   = (parseFloat(document.getElementById('slipPct').value) || 10) / 100;
+  const buyF   = parseInt(document.getElementById('buyFee').value)  || 100000;
+  const sellF  = parseInt(document.getElementById('sellFee').value) || 800000;
+  const skip   = document.getElementById('skipSafe').checked;
 
-  if (!addr)   { toast('Enter a token address', 'error'); return; }
-  if (!amount || amount <= 0) { toast('Enter a valid buy amount', 'error'); return; }
-  if (!tp || tp <= 0) { toast('Enter take profit %', 'error'); return; }
-  if (!sl || sl <= 0) { toast('Enter stop loss %', 'error'); return; }
+  if (!addr)  { toast('Enter a token address', 'err'); return; }
+  if (!amt || amt <= 0) { toast('Enter a valid buy amount in SOL', 'err'); return; }
+  if (!tp || tp <= 0)   { toast('Enter a take profit %', 'err'); return; }
+  if (!sl || sl <= 0)   { toast('Enter a stop loss %', 'err'); return; }
 
-  const btn = document.getElementById('startBtn');
+  const btn = document.getElementById('snipeBtn');
   btn.innerHTML = '<span class="spin"></span> Sniping…'; btn.disabled = true;
 
   try {
     const r = await fetch('/api/start', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        token_address: addr, buy_amount: amount,
-        take_profit_percent: tp, stop_loss_percent: sl,
-        trailing_stop_percent: ts, slippage: slip,
-        buy_priority_fee: buyFee, sell_priority_fee: sellFee,
-        skip_safety: skip, mode: currentMode,
-      })
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_address: addr, buy_amount: amt, take_profit_percent: tp, stop_loss_percent: sl, trailing_stop_percent: ts, slippage: slip, buy_priority_fee: buyF, sell_priority_fee: sellF, skip_safety: skip, mode: mode })
     });
     const d = await r.json();
     if (d.success) {
-      toast(`✅ ${currentMode==='demo'?'DEMO: ':''}Sniped! TX: ${(d.tx_signature||'').slice(0,12)}…`, 'success', 6000);
-      addLog(now(), `🚀 ${currentMode==='demo'?'[DEMO] ':''}Bought ${addr.slice(0,8)}…`);
-      if (d.safety) renderSafetyBar(d.safety);
-      document.getElementById('stopAllBtn').disabled = false;
+      toast(`✅ ${mode === 'demo' ? 'DEMO: ' : ''}Position opened! TX: ${(d.tx_signature || '').slice(0, 14)}…`, 'ok', 6000);
+      addLog(new Date().toLocaleTimeString(), `🚀 ${mode==='demo'?'[DEMO] ':''}Bought ${addr.slice(0,8)}…`);
+      if (d.safety) renderSBar(d.safety);
       fetchStatus();
+      mTab(document.querySelector('[data-p=pos]'), 'pos');
     } else {
-      toast('Error: ' + (d.error || 'unknown'), 'error', 7000);
-      addLog(now(), '❌ ' + (d.error || 'Start failed'), 'error');
-      if (d.safety?.warnings?.length) d.safety.warnings.forEach(w => addLog(now(), '⚠ ' + w, 'warning'));
+      toast('❌ ' + (d.error || 'Failed'), 'err', 7000);
+      addLog(new Date().toLocaleTimeString(), '❌ ' + (d.error || 'Start failed'), 'error');
+      if (d.safety?.warnings?.length) d.safety.warnings.slice(0,3).forEach(w => addLog(new Date().toLocaleTimeString(), '⚠ ' + w, 'warning'));
     }
-  } catch(e) { toast('Request failed: ' + e.message, 'error'); }
+  } catch(e) { toast('Request failed: ' + e.message, 'err'); }
   finally { btn.textContent = '🚀 SNIPE'; btn.disabled = false; }
 }
 
-async function stopAll() {
-  if (!confirm('Stop ALL positions and sell everything?')) return;
-  await fetch('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
-  toast('Stop-all submitted', 'info');
-  setTimeout(fetchStatus, 3000);
+async function doStopAll() {
+  if (!confirm('Sell ALL positions immediately?')) return;
+  await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  toast('Stop-all submitted', 'inf');
+  setTimeout(fetchStatus, 2500);
 }
-
-async function stopPos(addr) {
+async function sellPos(addr) {
   if (!confirm('Sell ' + addr.slice(0,8) + '…?')) return;
-  await fetch('/api/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token_address: addr})});
-  toast('Sell submitted', 'info');
+  await fetch('/api/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token_address: addr }) });
+  toast('Sell submitted', 'inf');
   setTimeout(fetchStatus, 2000);
 }
 
-// ── Render positions ───────────────────────────────────────────────────────
+// ── Positions ──────────────────────────────────────────────────────────────
 function renderPositions(positions) {
-  const list  = document.getElementById('posList');
-  const count = positions?.length || 0;
-  document.getElementById('sActive').textContent  = count;
-  document.getElementById('stopAllBtn').disabled  = count === 0;
+  const list = document.getElementById('posList');
+  const n    = positions?.length || 0;
+  document.getElementById('sAct').textContent     = n;
+  document.getElementById('stopAllBtn').disabled  = n === 0;
+  document.getElementById('setupBanner').style.display = (!walletSet && n === 0) ? '' : 'none';
 
-  if (!count) {
-    list.innerHTML = `<div class="empty"><div class="icon">🎯</div><p>No active positions.<br>Enter a token and hit SNIPE to start.</p></div>`;
+  if (!n) {
+    list.innerHTML = `<div class="empty"><div class="ico">🎯</div><p>No active positions.<br>Enter a token address and click <b>SNIPE</b>.</p></div>`;
     return;
   }
-
   list.innerHTML = positions.map(p => {
-    const pnlPct = p.pnl_percent || 0;
-    const isGain = pnlPct >= 0;
-    const isDemoPos = p.mode === 'demo';
-    const progress = Math.min(100, Math.max(0, p.tp_progress || 0));
-    const slProg   = pnlPct < 0 ? Math.min(100, Math.abs(pnlPct) / (p.stop_loss_pct||15) * 100) : 0;
+    const gain   = (p.pnl_percent || 0) >= 0;
+    const isDemo = p.mode === 'demo';
+    const prog   = Math.min(100, Math.max(0, p.tp_progress || 0));
+    const slProg = (p.pnl_percent || 0) < 0 ? Math.min(100, Math.abs(p.pnl_percent || 0) / (p.stop_loss_pct || 15) * 100) : 0;
 
-    return `
-<div class="pcard ${isGain?'':'loss'} ${isDemoPos?'demo-pos':''}">
-  <div class="phdr">
+    return `<div class="pcard ${gain ? '' : 'dn'} ${isDemo ? 'demo' : ''}">
+  <div class="ph">
     <div>
-      <div style="font-weight:700;font-size:.92em">${shortAddr(p.token_address)} ${isDemoPos ? '<span class="badge badge-blue">DEMO</span>':''}</div>
-      <div class="ptoken">${p.token_address}</div>
+      <div style="font-weight:700;font-size:.9em">${sA(p.token_address)} ${isDemo ? '<span class="bdg bb">DEMO</span>' : ''}</div>
+      <div class="ptok">${p.token_address}</div>
     </div>
     <div style="text-align:right">
-      <div class="ppnl ${cls(pnlPct)}">${fmtPct(pnlPct)}</div>
-      <div style="font-size:.74em;color:var(--muted)">${fmtUsd(p.pnl_usd)}</div>
+      <div class="ppnl ${gc(p.pnl_percent)}">${fP(p.pnl_percent)}</div>
+      <div style="font-size:.73em;color:var(--muted)">${fU(p.pnl_usd)}</div>
     </div>
   </div>
   <div class="pgrid">
-    <div class="pstat"><div class="label">Entry</div><div class="val">${fmtUsd(p.entry_price_usd)}</div></div>
-    <div class="pstat"><div class="label">Current</div><div class="val ${cls(pnlPct)}">${fmtUsd(p.current_price_usd)}</div></div>
-    <div class="pstat"><div class="label">Value</div><div class="val">${fmtUsd(p.position_value_usd)}</div></div>
-    <div class="pstat"><div class="label">Size</div><div class="val">${Number(p.position_size||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-    <div class="pstat"><div class="label">Safety</div><div class="val ${p.safety_score>=70?'green':p.safety_score>=40?'yellow':'red'}">${p.safety_score||'—'}/100</div></div>
-    <div class="pstat"><div class="label">Curve</div><div class="val">${fmt(p.bonding_curve_sol)} SOL</div></div>
+    <div class="ps"><div class="l">Entry</div><div class="v">${fU(p.entry_price_usd)}</div></div>
+    <div class="ps"><div class="l">Current</div><div class="v ${gc(p.pnl_percent)}">${fU(p.current_price_usd)}</div></div>
+    <div class="ps"><div class="l">Value</div><div class="v">${fU(p.position_value_usd)}</div></div>
+    <div class="ps"><div class="l">Tokens</div><div class="v">${Number(p.position_size||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+    <div class="ps"><div class="l">Safety</div><div class="v ${p.safety_score>=70?'g':p.safety_score>=40?'y':'r'}">${p.safety_score||'—'}/100</div></div>
+    <div class="ps"><div class="l">Curve SOL</div><div class="v">${f(p.bonding_curve_sol)}</div></div>
   </div>
-  ${progress>0?`<div class="prog-wrap"><div class="prog-lbl"><span>→ TP Progress</span><span>${fmt(progress,1)}%</span></div><div class="prog-track"><div class="prog-fill" style="width:${progress}%"></div></div></div>`:''}
-  ${slProg>0?`<div class="prog-wrap"><div class="prog-lbl"><span>⚠ SL Proximity</span><span>${fmt(slProg,1)}%</span></div><div class="prog-track"><div class="prog-fill sl" style="width:${slProg}%"></div></div></div>`:''}
-  <div class="targets">
-    <div class="tpill tp"><div class="tpill-l">Take Profit</div><div class="tpill-v">+${p.take_profit_pct}% / ${fmtUsd(p.tp_target_usd)}</div></div>
-    <div class="tpill sl"><div class="tpill-l">Stop Loss</div><div class="tpill-v">-${p.stop_loss_pct}% / ${fmtUsd(p.sl_target_usd)}</div></div>
-    ${p.trailing_stop_pct>0?`<div class="tpill ts"><div class="tpill-l">Trailing</div><div class="tpill-v">-${p.trailing_stop_pct}%</div></div>`:''}
+  ${prog > 0 ? `<div style="font-size:.67em;color:var(--muted);margin-bottom:2px;display:flex;justify-content:space-between"><span>→ TP Progress</span><span>${f(prog,1)}%</span></div><div class="pw"><div class="pf" style="width:${prog}%"></div></div>` : ''}
+  ${slProg > 0 ? `<div style="font-size:.67em;color:var(--muted);margin-bottom:2px;display:flex;justify-content:space-between"><span>⚠ SL Proximity</span><span>${f(slProg,1)}%</span></div><div class="pw"><div class="pf sl" style="width:${slProg}%"></div></div>` : ''}
+  <div class="trow">
+    <div class="tpill tp"><div class="tpill-l">Take Profit</div><div class="tpill-v">+${p.take_profit_pct}% / ${fU(p.tp_target_usd)}</div></div>
+    <div class="tpill sl"><div class="tpill-l">Stop Loss</div><div class="tpill-v">-${p.stop_loss_pct}% / ${fU(p.sl_target_usd)}</div></div>
+    ${p.trailing_stop_pct > 0 ? `<div class="tpill ts"><div class="tpill-l">Trailing</div><div class="tpill-v">-${p.trailing_stop_pct}%</div></div>` : ''}
   </div>
-  <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
-    <span class="badge ${p.status==='active'?'badge-green':'badge-yellow'}">${p.status||'active'}</span>
-    <span style="font-size:.68em;color:var(--muted);flex:1">Upd ${p.last_update?new Date(p.last_update).toLocaleTimeString():'—'}</span>
-    <button onclick="stopPos('${p.token_address}')" class="btn btn-red" style="width:auto;padding:4px 10px;font-size:.74em">Sell</button>
+  <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+    <span class="bdg ${p.status==='active'?'bg':'by'}">${p.status||'active'}</span>
+    <span style="font-size:.67em;color:var(--muted);flex:1">Updated ${p.last_update ? new Date(p.last_update).toLocaleTimeString() : '—'}</span>
+    <button onclick="sellPos('${p.token_address}')" class="btn btn-r" style="width:auto;padding:4px 10px;font-size:.73em">Sell</button>
     <a href="https://solscan.io/token/${p.token_address}" target="_blank" style="font-size:.78em;color:var(--muted);text-decoration:none">🔗</a>
   </div>
 </div>`;
   }).join('');
 }
 
-// ── Fetch status ───────────────────────────────────────────────────────────
+// ── Status poll ────────────────────────────────────────────────────────────
 async function fetchStatus() {
   try {
     const r = await fetch('/api/status');
-    if (!r.ok) return;
+    if (!r.ok) { setOffline(); return; }
     const d = await r.json();
 
-    const sol  = d.sol_balance ?? 0;
-    const pnl  = d.total_pnl_usd || 0;
-    const val  = d.total_value_usd || 0;
-    const cnt  = d.position_count || 0;
+    const sol = d.sol_balance ?? 0;
+    const pnl = d.total_pnl_usd || 0;
+    const val = d.total_value_usd || 0;
+    const cnt = d.position_count || 0;
+
+    walletSet = !!d.wallet_address;
 
     document.getElementById('hSol').textContent = sol.toFixed(4) + ' SOL';
     document.getElementById('hPos').textContent = cnt;
-    const hPnl = document.getElementById('hPnl');
-    hPnl.textContent = (pnl>=0?'+':'') + fmtUsd(pnl);
-    hPnl.className = 'hstat-v ' + cls(pnl);
+    const hp = document.getElementById('hPnl');
+    hp.textContent = (pnl>=0?'+':'') + fU(pnl); hp.className = 'v ' + gc(pnl);
 
-    document.getElementById('sActive').textContent = cnt;
-    const sPnl = document.getElementById('sPnl');
-    sPnl.textContent = (pnl>=0?'+':'') + fmtUsd(pnl);
-    sPnl.className = 'sval ' + cls(pnl);
-    document.getElementById('sPort').textContent = fmtUsd(val);
+    document.getElementById('sPnl').textContent  = (pnl>=0?'+':'') + fU(pnl);
+    document.getElementById('sPnl').className    = 'sv ' + gc(pnl);
+    document.getElementById('sPort').textContent = fU(val);
 
-    document.getElementById('ovActive').textContent = cnt;
-    const ovPnl = document.getElementById('ovPnl');
-    ovPnl.textContent = (pnl>=0?'+':'') + fmtUsd(pnl); ovPnl.className = 'sval ' + cls(pnl);
-    document.getElementById('ovPort').textContent = fmtUsd(val);
+    document.getElementById('ovAct').textContent  = cnt;
+    document.getElementById('ovPnl').textContent  = (pnl>=0?'+':'') + fU(pnl);
+    document.getElementById('ovPnl').className    = 'sv ' + gc(pnl);
+    document.getElementById('ovPort').textContent = fU(val);
     document.getElementById('ovSol').textContent  = sol.toFixed(4) + ' SOL';
-    document.getElementById('ovMode').textContent = (d.mode||'—').toUpperCase();
-    document.getElementById('ovScan').textContent = d.scan_results?.length ? d.scan_results.length + ' found' : 'Idle';
+    document.getElementById('ovMode').textContent = (d.mode || '—').toUpperCase();
+    document.getElementById('ovScan').textContent = d.scan_results?.length ? d.scan_results.length + ' cached' : 'Idle';
 
-    if (d.wallet_address) document.getElementById('walletAddr').textContent = d.wallet_address;
+    if (d.wallet_address)
+      document.getElementById('wAddr').textContent = d.wallet_address;
 
     renderPositions(d.positions || []);
 
     // Sync mode
-    if (d.mode && d.mode !== currentMode) {
-      currentMode = d.mode;
+    if (d.mode && d.mode !== mode) {
+      mode = d.mode;
+      const map = { demo: 'm-demo', semi: 'm-semi', full: 'm-full' };
       ['demo','semi','full'].forEach(x => {
-        const btn = document.getElementById('mode' + x.charAt(0).toUpperCase() + x.slice(1));
-        btn.className = 'mode-btn' + (x === currentMode ? ` active-${x}` : '');
+        const b = document.getElementById('m' + x.charAt(0).toUpperCase() + x.slice(1));
+        b.className = 'mbtn' + (x === mode ? ' ' + map[x] : '');
       });
     }
 
-    // Activity log
+    // Logs
     const logs = d.activity_log || [];
     logs.slice(seenLogs).forEach(l => addLog(l.time, l.message, l.level || 'info'));
     seenLogs = logs.length;
 
-    document.getElementById('connDot').className = 'live-dot on';
-    document.getElementById('connLbl').textContent = 'LIVE';
-  } catch(e) {
-    document.getElementById('connDot').className = 'live-dot';
-    document.getElementById('connLbl').textContent = 'OFFLINE';
-  }
+    document.getElementById('cDot').className = 'dot on';
+    document.getElementById('cLbl').textContent = 'LIVE';
+  } catch { setOffline(); }
+}
+function setOffline() {
+  document.getElementById('cDot').className = 'dot';
+  document.getElementById('cLbl').textContent = 'OFFLINE';
 }
 
 // ── Scanner ────────────────────────────────────────────────────────────────
-async function startScanner() {
-  await fetch('/api/scan/start', {method:'POST'});
-  toast('Scanner started', 'info', 2000);
-  setTimeout(loadScanResults, 3000);
+let scanRunning = false;
+async function startScan() {
+  if (!scanRunning) {
+    scanRunning = true;
+    try { await fetch('/api/scan/start', { method: 'POST' }); } catch {}
+  }
+  await loadScan();
 }
-
-async function loadScanResults() {
+async function loadScan() {
   try {
     const r = await fetch('/api/scan');
     const d = await r.json();
-    renderScanResults(d.results || []);
-  } catch(e) { toast('Scanner fetch failed', 'error'); }
+    renderScan(d.results || []);
+  } catch {}
 }
-
-function renderScanResults(results) {
-  const list = document.getElementById('scanList');
+function renderScan(results) {
+  const el = document.getElementById('scanFeed');
   if (!results.length) {
-    list.innerHTML = `<div class="empty"><div class="icon">🔍</div><p>No results yet. Start the scanner.</p></div>`;
+    el.innerHTML = `<div class="empty"><div class="ico">📡</div><p>Scanning for real-time launches…<br>Only tokens from the last 2 hours appear here.</p></div>`;
     return;
   }
-  list.innerHTML = results.map(t => {
-    const score = t.safety_score || 0;
-    const scoreCls = score >= 70 ? 'green' : score >= 40 ? 'yellow' : 'red';
-    const passes = t.passes_filters;
-    return `
-<div class="scan-item">
-  <div class="scan-hdr">
-    <div>
-      <div class="scan-name">${t.name||'?'} <span class="scan-sym">${t.symbol||'?'}</span></div>
-      <div class="scan-addr">${t.token_address?.slice(0,16)}…</div>
+  el.innerHTML = `<div class="scan-feed">` + results.map(t => {
+    const sc = t.safety_score || 0;
+    const scCls = sc >= 70 ? 'g' : sc >= 40 ? 'y' : 'r';
+    const pass  = t.passes_filters;
+    const age   = t.age_min ? `${Math.round(t.age_min)}m ago` : '';
+    const src   = t.source === 'pump.fun' ? '🟠 pump.fun' : '🔵 dex';
+    return `<div class="si">
+  <div class="si-top">
+    <div style="flex:1">
+      <div class="si-name">${t.name || '?'} <span class="si-sym">${t.symbol || ''}</span></div>
+      <div class="si-addr">${t.token_address || ''}</div>
     </div>
-    <span class="badge ${passes?'badge-green':'badge-red'}" style="margin-left:auto">${passes?'✅ PASS':'⛔ FAIL'}</span>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+      <span class="bdg ${pass ? 'bg' : 'br'}">${pass ? '✅ PASS' : '⛔ FAIL'}</span>
+      ${age ? `<span class="age-pill">${age}</span>` : ''}
+    </div>
   </div>
-  <div class="scan-grid">
-    <div class="scan-stat"><div class="label">Safety</div><div class="val ${scoreCls}">${score}/100</div></div>
-    <div class="scan-stat"><div class="label">Top10 Hold</div><div class="val ${t.top10_pct>30?'red':'green'}">${fmt(t.top10_pct,1)}%</div></div>
-    <div class="scan-stat"><div class="label">Mint Auth</div><div class="val ${t.mint_auth_ok?'green':'red'}">${t.mint_auth_ok?'Off':'On'}</div></div>
-    ${t.market_cap?`<div class="scan-stat"><div class="label">Mkt Cap</div><div class="val">${fmtUsd(t.market_cap)}</div></div>`:''}
-    <div class="scan-stat"><div class="label">Source</div><div class="val" style="color:var(--muted2)">${t.source||'?'}</div></div>
+  <div class="si-stats">
+    <div class="si-stat"><div class="l">Safety</div><div class="v ${scCls}">${sc}/100</div></div>
+    <div class="si-stat"><div class="l">Top-10 hold</div><div class="v ${t.top10_pct>30?'r':'g'}">${f(t.top10_pct,1)}%</div></div>
+    <div class="si-stat"><div class="l">Mint auth</div><div class="v ${t.mint_auth_ok?'g':'r'}">${t.mint_auth_ok ? 'Off ✓' : 'On ✗'}</div></div>
+    <div class="si-stat"><div class="l">Source</div><div class="v mn" style="font-size:.85em">${src}</div></div>
   </div>
-  ${(t.safety_warnings||[]).length?`<div style="font-size:.7em;color:var(--yellow);margin-bottom:6px">${t.safety_warnings.slice(0,2).join(' · ')}</div>`:''}
-  <div class="scan-btns">
-    <button class="btn btn-ghost" onclick="fillToken('${t.token_address}')" style="flex:1">📋 Fill</button>
-    ${passes?`<button class="btn btn-green" onclick="snipeScanned('${t.token_address}')" style="flex:1">🚀 Snipe</button>`:''}
-    <a href="https://pump.fun/coin/${t.token_address}" target="_blank" class="btn btn-ghost" style="flex:1;text-align:center;text-decoration:none">🔗 View</a>
+  ${(t.safety_warnings||[]).length ? `<div style="font-size:.69em;color:var(--yellow);margin-bottom:6px;line-height:1.4">${t.safety_warnings.slice(0,2).join(' · ')}</div>` : ''}
+  ${t.scan_ts ? `<div style="font-size:.66em;color:var(--muted);margin-bottom:5px">Scanned ${t.scan_ts}</div>` : ''}
+  <div class="si-btns">
+    <button class="btn btn-gh" onclick="fillTok('${t.token_address}')" style="flex:1">📋 Fill</button>
+    ${pass ? `<button class="btn btn-g" onclick="snipeScanned('${t.token_address}')" style="flex:1">🚀 Snipe</button>` : ''}
+    <a href="https://pump.fun/coin/${t.token_address}" target="_blank" class="btn btn-gh" style="text-align:center;text-decoration:none;flex:1">🔗 Pump</a>
   </div>
 </div>`;
-  }).join('');
+  }).join('') + `</div>`;
 }
 
-function fillToken(addr) {
-  document.getElementById('tokenAddr').value = addr;
-  switchSTab(document.querySelector('[data-panel="trade"]'), 'trade');
-  toast('Token filled → Trade tab', 'info', 2000);
+function fillTok(addr) {
+  document.getElementById('tokAddr').value = addr;
+  sTab(document.querySelector('[data-t=trade]'), 'trade');
+  toast('Token filled in Trade tab', 'inf', 2000);
 }
-
 async function snipeScanned(addr) {
-  document.getElementById('tokenAddr').value = addr;
-  switchSTab(document.querySelector('[data-panel="trade"]'), 'trade');
-  await snipe(addr);
+  document.getElementById('tokAddr').value = addr;
+  sTab(document.querySelector('[data-t=trade]'), 'trade');
+  await doSnipe(addr);
 }
 
 // ── Settings ───────────────────────────────────────────────────────────────
-function toggleVis(id, btn) {
+function togVis(id, btn) {
   const el = document.getElementById(id);
-  if (el.type === 'password') { el.type = 'text'; btn.textContent = '🙈'; }
-  else { el.type = 'password'; btn.textContent = '👁'; }
+  el.type = el.type === 'password' ? 'text' : 'password';
+  btn.textContent = el.type === 'password' ? '👁' : '🙈';
 }
-
+function setStatus(elId, obj) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = obj?.set
+    ? `<span class="cok">✅ Configured${obj.preview ? ' (' + obj.preview + ')' : ''}</span>`
+    : `<span class="cmiss">○ Not set</span>`;
+}
 async function loadConfig() {
   try {
     const r = await fetch('/api/config/get');
     const d = await r.json();
-    const setStatus = (key, elId) => {
-      const st = d[key];
-      const el = document.getElementById(elId);
-      if (!el) return;
-      el.innerHTML = st?.set
-        ? `<span class="cfg-ok">✅ Configured${st.preview ? ' (' + st.preview + ')' : ''}</span>`
-        : `<span class="cfg-miss">○ Not set</span>`;
-    };
-    setStatus('PRIVATE_KEY', 'cfgPrivKeyStatus');
-    setStatus('RPC_URL', 'cfgRpcStatus');
-    setStatus('JITO_BLOCK_ENGINE_URL', 'cfgJitoStatus');
-    setStatus('TELEGRAM_BOT_TOKEN', 'cfgTgTokenStatus');
-    setStatus('TELEGRAM_CHAT_ID', 'cfgTgChatStatus');
-    if (d.RPC_URL?.preview && d.RPC_URL.preview !== 'https://api.mainnet-beta.solana.com') {
-      document.getElementById('cfgRpc').placeholder = d.RPC_URL.preview;
-    }
-    if (d.AUTO_BUY_SOL?.preview) document.getElementById('cfgAutoSol').value = d.AUTO_BUY_SOL.preview;
-    if (d.AUTO_TP?.preview)      document.getElementById('cfgAutoTp').value  = d.AUTO_TP.preview;
-    if (d.AUTO_SL?.preview)      document.getElementById('cfgAutoSl').value  = d.AUTO_SL.preview;
-    if (d.AUTO_TS?.preview)      document.getElementById('cfgAutoTs').value  = d.AUTO_TS.preview;
-  } catch(e) {}
+    setStatus('stPK',   d.PRIVATE_KEY);
+    setStatus('stRpc',  d.RPC_URL);
+    setStatus('stJito', d.JITO_BLOCK_ENGINE_URL);
+    setStatus('stTgT',  d.TELEGRAM_BOT_TOKEN);
+    setStatus('stTgC',  d.TELEGRAM_CHAT_ID);
+    if (d.RPC_URL?.preview) document.getElementById('cfgRpc').placeholder = d.RPC_URL.preview;
+    if (d.AUTO_BUY_SOL?.preview) document.getElementById('cfgAS').value  = d.AUTO_BUY_SOL.preview;
+    if (d.AUTO_TP?.preview)      document.getElementById('cfgAT').value  = d.AUTO_TP.preview;
+    if (d.AUTO_SL?.preview)      document.getElementById('cfgAL').value  = d.AUTO_SL.preview;
+    if (d.AUTO_TS?.preview)      document.getElementById('cfgATs').value = d.AUTO_TS.preview;
+  } catch {}
 }
-
 async function saveConfig() {
-  const body = {};
   const fields = [
-    ['cfgPrivKey','PRIVATE_KEY'],['cfgRpc','RPC_URL'],['cfgJito','JITO_BLOCK_ENGINE_URL'],
-    ['cfgTgToken','TELEGRAM_BOT_TOKEN'],['cfgTgChat','TELEGRAM_CHAT_ID'],
-    ['cfgAutoSol','AUTO_BUY_SOL'],['cfgAutoTp','AUTO_TP'],['cfgAutoSl','AUTO_SL'],['cfgAutoTs','AUTO_TS'],
+    ['cfgPK','PRIVATE_KEY'],['cfgRpc','RPC_URL'],['cfgJito','JITO_BLOCK_ENGINE_URL'],
+    ['cfgTgT','TELEGRAM_BOT_TOKEN'],['cfgTgC','TELEGRAM_CHAT_ID'],
+    ['cfgAS','AUTO_BUY_SOL'],['cfgAT','AUTO_TP'],['cfgAL','AUTO_SL'],['cfgATs','AUTO_TS'],
   ];
-  fields.forEach(([el, key]) => {
-    const v = document.getElementById(el)?.value?.trim();
+  const body = {};
+  fields.forEach(([id, key]) => {
+    const v = document.getElementById(id)?.value?.trim();
     if (v) body[key] = v;
   });
-
-  if (!Object.keys(body).length) { toast('Nothing to save', 'info'); return; }
-
+  if (!Object.keys(body).length) { toast('Nothing to save', 'inf'); return; }
   const btn = document.querySelector('[onclick="saveConfig()"]');
   btn.innerHTML = '<span class="spin"></span> Saving…'; btn.disabled = true;
   try {
-    const r = await fetch('/api/config/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const r = await fetch('/api/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const d = await r.json();
     if (d.success) {
-      toast('✅ Settings saved: ' + d.saved.join(', '), 'success', 5000);
-      loadConfig();
-      fetchStatus();
-    } else {
-      toast('Error: ' + d.error, 'error');
-    }
-  } catch(e) { toast('Save failed: ' + e.message, 'error'); }
+      toast('✅ Saved: ' + d.saved.join(', '), 'ok', 5000);
+      loadConfig(); fetchStatus();
+    } else { toast('Error: ' + d.error, 'err'); }
+  } catch(e) { toast('Save failed: ' + e.message, 'err'); }
   finally { btn.textContent = '💾 Save All Settings'; btn.disabled = false; }
 }
-
-async function testTelegram() {
-  const btn = document.querySelector('[onclick="testTelegram()"]');
+async function testTg() {
+  const btn = document.querySelector('[onclick="testTg()"]');
   btn.innerHTML = '<span class="spin"></span> Sending…'; btn.disabled = true;
   try {
-    const r = await fetch('/api/notify/test', {method:'POST'});
+    const r = await fetch('/api/notify/test', { method: 'POST' });
     const d = await r.json();
-    toast(d.success ? '✅ Telegram message sent!' : '❌ ' + (d.error || 'Failed'), d.success ? 'success' : 'error', 5000);
-  } catch(e) { toast('Request failed', 'error'); }
-  finally { btn.textContent = '📨 Send Test'; btn.disabled = false; }
+    toast(d.success ? '✅ Telegram message sent!' : '❌ ' + (d.error || 'Failed — check token and chat ID'), d.success ? 'ok' : 'err', 5000);
+  } catch(e) { toast('Request failed', 'err'); }
+  finally { btn.textContent = '📨 Send Test Message'; btn.disabled = false; }
 }
 
-// ── Poll ───────────────────────────────────────────────────────────────────
+// ── Boot & polling ─────────────────────────────────────────────────────────
 fetchStatus();
-pollTimer = setInterval(fetchStatus, 4000);
-setInterval(loadScanResults, 20000);
+setInterval(fetchStatus, 4000);
+setInterval(loadScan, 22000);
 </script>
 </body>
 </html>

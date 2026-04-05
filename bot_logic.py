@@ -9,7 +9,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from pump_sdk import PumpFunSDK
-from scanner import scan_pump_fun_new, scan_dexscreener_trending, full_token_scan
+from scanner import scan_pump_fun_new, scan_dexscreener_new_pairs, full_token_scan
 import notifier
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -572,15 +572,19 @@ class BotManager:
                 target=self._scanner_loop, daemon=True, name="scanner"
             )
             self._scanner_thread.start()
-            self._log("🤖 Full-Auto scanner started")
+            label = "Full-Auto" if self.mode == Mode.FULL_AUTO else "Scanner"
+            self._log(f"🔍 {label} started — scanning real-time token launches")
 
     def _scanner_loop(self):
         """
-        Continuously scan for new tokens, run safety checks, and auto-buy
-        if in Full-Auto mode and all filters pass.
+        Real-time scanner: Pump.fun newest + DexScreener newest pairs.
+        - Resets the seen-set every hour so tokens can be re-evaluated after launch
+        - Runs for SEMI_AUTO (scan only) and FULL_AUTO (scan + auto-buy)
+        - Skips all modes below SEMI_AUTO
         """
         logger.info("Scanner loop started")
-        scanned_tokens: set = set()  # avoid re-scanning the same token
+        scanned_tokens: set = set()
+        last_reset = time.time()
 
         while self._scan_running:
             try:
@@ -588,35 +592,57 @@ class BotManager:
                     time.sleep(10)
                     continue
 
-                # Fetch new tokens
-                pump_tokens = scan_pump_fun_new(limit=20)
-                dex_tokens  = scan_dexscreener_trending(limit=10)
+                # Reset seen-set every 60 min so tokens don't expire permanently
+                if time.time() - last_reset > 3600:
+                    scanned_tokens.clear()
+                    last_reset = time.time()
+                    logger.info("Scanner: seen-set cleared (hourly reset)")
+
+                # ── Fetch real-time tokens ──
+                pump_tokens = scan_pump_fun_new(limit=50)   # Pump.fun newest (last 2h)
+                dex_tokens  = scan_dexscreener_new_pairs(limit=30)  # DexScreener newest
                 all_tokens  = pump_tokens + dex_tokens
 
-                fresh = [t for t in all_tokens if t["token_address"] not in scanned_tokens]
+                fresh = [
+                    t for t in all_tokens
+                    if t.get("token_address") and t["token_address"] not in scanned_tokens
+                ]
+
                 if not fresh:
-                    time.sleep(15)
+                    self._log(f"🔍 Scanner: all {len(all_tokens)} tokens already seen — waiting…")
+                    time.sleep(30)
                     continue
 
+                logger.info(f"Scanner: {len(fresh)} fresh tokens to evaluate (from {len(all_tokens)} total)")
+
                 new_results = []
-                for token in fresh[:10]:  # process max 10 per cycle
-                    addr = token["token_address"]
+                for token in fresh[:12]:   # max 12 per cycle to avoid RPC hammering
+                    addr = token.get("token_address", "")
                     if not addr or len(addr) < 32:
                         continue
                     scanned_tokens.add(addr)
 
-                    # Quick safety check (on-chain only for speed)
-                    bc = self.pump_sdk.derive_bonding_curve(addr)
-                    from scanner import full_token_scan
+                    # On-chain safety checks
+                    bc    = self.pump_sdk.derive_bonding_curve(addr)
                     chain = full_token_scan(self.client, addr, bc)
 
-                    token["safety_score"]    = chain["score"]
-                    token["safety_warnings"] = chain["warnings"]
-                    token["mint_auth_ok"]    = chain["mint_auth_disabled"]
-                    token["top10_pct"]       = chain["top10_pct"]
-                    token["passes_filters"]  = chain["safe"]
-                    token["bonding_curve"]   = bc
+                    token.update({
+                        "safety_score":    chain["score"],
+                        "safety_warnings": chain["warnings"],
+                        "mint_auth_ok":    chain.get("mint_auth_disabled", False),
+                        "top10_pct":       chain.get("top10_pct", 0.0),
+                        "passes_filters":  chain["safe"],
+                        "bonding_curve":   bc,
+                        "scan_ts":         datetime.now().strftime("%H:%M:%S"),
+                    })
                     new_results.append(token)
+
+                    age_str = f"{token.get('age_min',0):.0f}min ago" if token.get("age_min") else ""
+                    self._log(
+                        f"🔍 {token.get('symbol','?')} ({addr[:8]}…) | "
+                        f"Score {chain['score']}/100 | {age_str} | "
+                        f"{'✅ PASS' if chain['safe'] else '⛔ FAIL'}"
+                    )
 
                     # Auto-buy in Full-Auto mode
                     if (self.mode == Mode.FULL_AUTO
@@ -624,7 +650,7 @@ class BotManager:
                             and addr not in self.positions
                             and self.wallet):
 
-                        sol_bal = self.get_sol_balance()
+                        sol_bal     = self.get_sol_balance()
                         auto_amount = float(os.getenv("AUTO_BUY_SOL", "0.05"))
 
                         if sol_bal >= auto_amount + 0.01:
@@ -638,18 +664,26 @@ class BotManager:
                                 slippage              = 0.10,
                                 buy_priority_fee      = 100_000,
                                 sell_priority_fee     = 800_000,
-                                skip_safety           = True,  # already checked above
+                                skip_safety           = True,
                             )
 
                 with self._lock:
-                    # Prepend new results; keep max 100
-                    self.scan_results = (new_results + self.scan_results)[:100]
+                    # Newest results at the top, cap at 200
+                    combined = new_results + self.scan_results
+                    # Deduplicate by address
+                    seen_addr, deduped = set(), []
+                    for r in combined:
+                        a = r.get("token_address", "")
+                        if a and a not in seen_addr:
+                            seen_addr.add(a)
+                            deduped.append(r)
+                    self.scan_results = deduped[:200]
 
-                time.sleep(15)  # scan every 15 s
+                time.sleep(20)   # scan every 20s
 
             except Exception as e:
                 logger.error(f"Scanner loop: {e}", exc_info=True)
-                time.sleep(20)
+                time.sleep(30)
 
         logger.info("Scanner stopped")
 
