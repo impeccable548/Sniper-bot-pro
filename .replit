@@ -36,3 +36,9 @@ externalPort = 80
 [deployment]
 deploymentTarget = "vm"
 run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "app:app"]
+
+[userenv]
+
+[userenv.shared]
+TELEGRAM_BOT_TOKEN = "8603777493:AAG4ZsaivV8khmNfllusa2pTbf0MSJ2bRsc"
+TELEGRAM_CHAT_ID = "7744761024"
