@@ -323,26 +323,32 @@ class BotManager:
                 notifier.notify_safety_fail(token_address, safety["score"], safety["warnings"])
                 return {"success": False, "error": "Safety check failed", "safety": safety}
 
-        # Derive bonding curve
         self.pump_sdk.slippage          = slippage
         self.pump_sdk.buy_priority_fee  = buy_priority_fee
         self.pump_sdk.sell_priority_fee = sell_priority_fee
-        bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
-        if not bonding_curve:
-            return {"success": False, "error": "Could not derive bonding curve"}
 
-        price_sol, curve_sol = self.get_token_price(bonding_curve)
-        if price_sol == 0:
-            return {"success": False, "error": "Cannot read token price (not on bonding curve?)"}
+        # ── In Demo mode skip all RPC calls — simulate price/curve ──
+        if effective_mode == Mode.DEMO:
+            sol_usd         = fetch_sol_price()
+            price_sol       = 0.000001          # simulated entry price in SOL
+            entry_price_usd = price_sol * sol_usd
+            bonding_curve   = "DEMO-CURVE"
+            tokens_recv     = buy_amount_sol / price_sol
+            tx_sig          = "DEMO-TX"
+            self._log(f"👻 DEMO: Simulated buy {buy_amount_sol} SOL → {token_address[:8]}…")
+        else:
+            # Derive bonding curve
+            bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
+            if not bonding_curve:
+                return {"success": False, "error": "Could not derive bonding curve"}
 
-        sol_usd         = fetch_sol_price()
-        entry_price_usd = price_sol * sol_usd
+            price_sol, curve_sol = self.get_token_price(bonding_curve)
+            if price_sol == 0:
+                return {"success": False, "error": "Cannot read token price (not on bonding curve?)"}
 
-        # ── Execute or simulate buy ──
-        tx_sig = "DEMO-TX"
-        tokens_recv = buy_amount_sol / price_sol
+            sol_usd         = fetch_sol_price()
+            entry_price_usd = price_sol * sol_usd
 
-        if effective_mode != Mode.DEMO:
             self._log(f"💸 Executing buy: {buy_amount_sol} SOL → {token_address[:8]}…")
             buy_result = self.pump_sdk.buy_token(
                 token_address, bonding_curve, buy_amount_sol, buy_priority_fee
@@ -354,10 +360,7 @@ class BotManager:
             tx_sig = buy_result.get("signature", "")
             time.sleep(3)
             raw = self.get_token_balance(token_address)
-            if raw > 0:
-                tokens_recv = raw / 1e6
-        else:
-            self._log(f"👻 DEMO: Simulated buy {buy_amount_sol} SOL → {token_address[:8]}…")
+            tokens_recv = (raw / 1e6) if raw > 0 else (buy_amount_sol / price_sol)
 
         tp_price = entry_price_usd * (1 + take_profit_percent / 100)
         sl_price = entry_price_usd * (1 - abs(stop_loss_percent) / 100)
@@ -502,11 +505,20 @@ class BotManager:
                     if not pos or pos.get("status") != "active":
                         continue
 
-                    price_sol, curve_sol = self.get_token_price(pos["bonding_curve"])
-                    if price_sol == 0:
-                        continue
+                    is_demo = pos.get("mode") == Mode.DEMO.value
 
-                    current_usd = price_sol * sol_usd
+                    if is_demo:
+                        # Simulate price walk: ±3% per tick so TP/SL can trigger
+                        import random
+                        last_usd    = pos.get("current_price_usd", pos["entry_price_usd"])
+                        change      = random.uniform(-0.03, 0.05)
+                        current_usd = max(last_usd * (1 + change), 1e-12)
+                        curve_sol   = 0.0
+                    else:
+                        price_sol, curve_sol = self.get_token_price(pos["bonding_curve"])
+                        if price_sol == 0:
+                            continue
+                        current_usd = price_sol * sol_usd
                     entry_usd   = pos["entry_price_usd"]
                     pnl_pct     = (current_usd - entry_usd) / entry_usd * 100
                     pnl_usd     = (current_usd - entry_usd) * pos["position_size"]
