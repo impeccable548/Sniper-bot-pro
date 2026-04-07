@@ -333,6 +333,7 @@ class BotManager:
             price_sol       = 0.000001          # simulated entry price in SOL
             entry_price_usd = price_sol * sol_usd
             bonding_curve   = "DEMO-CURVE"
+            curve_sol       = 0.0
             tokens_recv     = buy_amount_sol / price_sol
             tx_sig          = "DEMO-TX"
             self._log(f"👻 DEMO: Simulated buy {buy_amount_sol} SOL → {token_address[:8]}…")
