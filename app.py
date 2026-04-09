@@ -237,5 +237,12 @@ def health():
 
 
 if __name__ == "__main__":
+    import signal, subprocess
     port = int(os.environ.get("PORT", 5000))
+    # Free the port if something is still holding it
+    try:
+        subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True)
+        import time as _t; _t.sleep(0.5)
+    except Exception:
+        pass
     app.run(host="0.0.0.0", port=port, debug=False)
