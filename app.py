@@ -14,10 +14,18 @@ app = Flask(__name__)
 # ── Bot manager (lazy-init so it picks up .env values) ────────────────────────
 from bot_logic import BotManager, check_honeypot
 import notifier
+from ultra_mode import UltraMode
 
 bot_manager = BotManager(
     private_key=os.getenv("PRIVATE_KEY", ""),
     rpc_url=os.getenv("RPC_URL", "https://api.mainnet-beta.solana.com"),
+)
+
+ultra = UltraMode(
+    pump_sdk            = bot_manager.pump_sdk,
+    rpc_client          = bot_manager.client,
+    get_token_price_fn  = bot_manager.get_token_price,
+    get_token_balance_fn= bot_manager.get_token_balance,
 )
 
 ENV_FILE = ".env"
@@ -221,6 +229,58 @@ def test_notification():
     try:
         result = notifier.test_notification()
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Ultra Mode ────────────────────────────────────────────────────────────────
+
+@app.route("/api/ultra/start", methods=["POST"])
+def ultra_start():
+    try:
+        d        = request.json or {}
+        sub_mode = d.get("sub_mode", "mint")
+        config   = {
+            "sol_amount":    d.get("sol_amount"),
+            "tp_pct":        d.get("tp_pct"),
+            "sl_pct":        d.get("sl_pct"),
+            "ts_pct":        d.get("ts_pct"),
+            "slippage":      d.get("slippage"),
+            "jito_tip_sol":  d.get("jito_tip_sol"),
+            "max_mc_usd":    d.get("max_mc_usd"),
+            "min_whale_sol": d.get("min_whale_sol"),
+            "max_pump_pct":  d.get("max_pump_pct"),
+            "whale_wallets": d.get("whale_wallets", []),
+        }
+        result = ultra.start(sub_mode, {k: v for k, v in config.items() if v is not None})
+        return jsonify(result), (200 if result.get("success") else 400)
+    except Exception as e:
+        logger.exception("ultra_start")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ultra/stop", methods=["POST"])
+def ultra_stop():
+    try:
+        return jsonify(ultra.stop())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ultra/status", methods=["GET"])
+def ultra_status():
+    try:
+        return jsonify(ultra.get_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ultra/watchlist", methods=["POST"])
+def ultra_watchlist():
+    try:
+        d       = request.json or {}
+        wallets = d.get("wallets", [])
+        return jsonify(ultra.save_watchlist(wallets))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

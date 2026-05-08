@@ -236,6 +236,7 @@ body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sa
     <div class="stabs">
       <div class="stab on" data-t="trade" onclick="sTab(this,'trade')">🎯 Trade</div>
       <div class="stab" data-t="scanner" onclick="sTab(this,'scanner')">📡 Scanner</div>
+      <div class="stab" data-t="ultra" onclick="sTab(this,'ultra')">⚡ Ultra</div>
       <div class="stab" data-t="settings" onclick="sTab(this,'settings')">⚙️ Settings</div>
     </div>
 
@@ -315,6 +316,88 @@ body{font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',sa
       <div class="card">
         <div class="ctitle">👛 Wallet</div>
         <div style="font-family:'Monaco',monospace;font-size:.72em;color:var(--muted);word-break:break-all;line-height:1.6" id="wAddr">Not configured — add Private Key in Settings ⚙️</div>
+      </div>
+    </div>
+
+    <!-- ── ULTRA TAB ── -->
+    <div class="stab-body" id="sb-ultra">
+      <div class="card">
+        <div class="ctitle">⚡ Ultra Mode — Sub-Mode</div>
+        <div style="display:flex;gap:6px;margin-bottom:10px">
+          <button id="uMint" class="btn btn-b" style="flex:1;font-size:.8em" onclick="uSetMode('mint')">🎯 Ultra-Mint</button>
+          <button id="uWhale" class="btn btn-gh" style="flex:1;font-size:.8em" onclick="uSetMode('whale')">🐋 Ultra-Whale</button>
+        </div>
+        <div class="help" id="uMintHelp">WebSocket listens for new Pump.fun mints. Scores in &lt;200ms, checks MC cap, then fires immediately via Jito. Single-shot: one trade then auto-deactivates.</div>
+        <div class="help" id="uWhaleHelp" style="display:none">Monitors whale wallet logs via Solana WebSocket. Detects their buy, checks token isn't already pumped &gt;300%, fires your buy in the next block. Trailing stop enabled.</div>
+      </div>
+
+      <div class="card">
+        <div class="ctitle">⚙️ Ultra Settings</div>
+        <div class="g2">
+          <div class="frow" style="margin:0">
+            <div class="flbl">SOL Amount</div>
+            <input class="inp" id="uSol" type="number" value="0.05" step="0.01" min="0.001">
+          </div>
+          <div class="frow" style="margin:0">
+            <div class="flbl">Slippage %</div>
+            <input class="inp" id="uSlip" type="number" value="10" min="1" max="50">
+          </div>
+        </div>
+        <div class="g2" style="margin-top:6px">
+          <div class="frow" style="margin:0">
+            <div class="flbl">Take Profit %</div>
+            <input class="inp" id="uTp" type="number" value="75" min="1">
+          </div>
+          <div class="frow" style="margin:0">
+            <div class="flbl">Stop Loss %</div>
+            <input class="inp" id="uSl" type="number" value="15" min="1">
+          </div>
+        </div>
+        <div class="g2" style="margin-top:6px" id="uTsRow">
+          <div class="frow" style="margin:0">
+            <div class="flbl">Trailing Stop % <span style="color:var(--muted);font-size:.8em">(Whale only)</span></div>
+            <input class="inp" id="uTs" type="number" value="20" min="0">
+          </div>
+          <div class="frow" style="margin:0">
+            <div class="flbl">Jito Tip (SOL)</div>
+            <input class="inp" id="uJito" type="number" value="0.001" step="0.0001" min="0.0001">
+          </div>
+        </div>
+        <div class="g2" style="margin-top:6px" id="uMintRow">
+          <div class="frow" style="margin:0">
+            <div class="flbl">Max MC (USD) <span style="color:var(--muted);font-size:.8em">(Mint only)</span></div>
+            <input class="inp" id="uMc" type="number" value="60000" step="1000">
+          </div>
+          <div class="frow" style="margin:0">
+            <div class="flbl">Min Whale SOL <span style="color:var(--muted);font-size:.8em">(Whale only)</span></div>
+            <input class="inp" id="uWhaleSol" type="number" value="1" step="0.1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Whale Watchlist (shown only in Whale mode) -->
+      <div class="card" id="uWatchCard" style="display:none">
+        <div class="ctitle">🐋 Whale Watchlist</div>
+        <div class="help">One wallet address per line. Bot will shadow any buy from these wallets.</div>
+        <textarea class="inp" id="uWallets" rows="5" placeholder="Paste wallet addresses here&#10;One per line…" style="resize:vertical;font-family:'Monaco',monospace;font-size:.72em;line-height:1.6"></textarea>
+        <button class="btn btn-gh" onclick="uSaveWatchlist()" style="width:100%;margin-top:6px">💾 Save Watchlist</button>
+      </div>
+
+      <!-- Activate button -->
+      <button class="btn" id="uActBtn" onclick="uToggle()" style="width:100%;padding:13px;font-size:.9em;font-weight:700;background:linear-gradient(135deg,#7c3aed,#4f46e5);border:none;border-radius:8px;color:#fff;cursor:pointer;transition:.2s">
+        ⚡ ACTIVATE ULTRA MODE
+      </button>
+
+      <!-- Status strip -->
+      <div class="card" id="uStatusCard" style="display:none">
+        <div class="ctitle">📊 Status</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div id="uStateDot" style="width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
+          <div id="uStateLabel" style="font-size:.82em;font-weight:600;color:var(--text)">ARMED</div>
+        </div>
+        <div id="uLastEvent" style="font-size:.75em;color:var(--muted2);line-height:1.5;margin-bottom:8px"></div>
+        <div id="uPosInfo" style="display:none;font-size:.77em;color:var(--text);line-height:1.8;background:rgba(255,255,255,.03);border-radius:6px;padding:8px"></div>
+        <div id="uLogFeed" style="font-size:.68em;color:var(--muted);font-family:'Monaco',monospace;max-height:120px;overflow-y:auto;line-height:1.6;margin-top:6px"></div>
       </div>
     </div>
 
@@ -918,6 +1001,141 @@ async function testTg() {
   } catch(e) { toast('Request failed', 'err'); }
   finally { btn.textContent = '📨 Send Test Message'; btn.disabled = false; }
 }
+
+// ── Ultra Mode ──────────────────────────────────────────────────────────────
+let ultraSubMode = 'mint', ultraActive = false, ultraPoll = null;
+
+function uSetMode(m) {
+  ultraSubMode = m;
+  document.getElementById('uMint').className  = 'btn ' + (m==='mint'  ? 'btn-b' : 'btn-gh');
+  document.getElementById('uWhale').className = 'btn ' + (m==='whale' ? 'btn-b' : 'btn-gh');
+  document.getElementById('uMintHelp').style.display  = m==='mint'  ? '' : 'none';
+  document.getElementById('uWhaleHelp').style.display = m==='whale' ? '' : 'none';
+  document.getElementById('uWatchCard').style.display = m==='whale' ? '' : 'none';
+  document.getElementById('uTsRow').style.opacity    = m==='whale' ? '1' : '.4';
+  document.getElementById('uMintRow').style.opacity  = '1';
+}
+
+async function uToggle() {
+  if (ultraActive) {
+    await fetch('/api/ultra/stop', { method: 'POST' });
+    ultraActive = false;
+    uRenderIdle();
+    if (ultraPoll) { clearInterval(ultraPoll); ultraPoll = null; }
+    toast('🔴 Ultra Mode deactivated', 'inf');
+    return;
+  }
+  const body = {
+    sub_mode:    ultraSubMode,
+    sol_amount:  parseFloat(document.getElementById('uSol').value)   || 0.05,
+    tp_pct:      parseFloat(document.getElementById('uTp').value)    || 75,
+    sl_pct:      parseFloat(document.getElementById('uSl').value)    || 15,
+    ts_pct:      parseFloat(document.getElementById('uTs').value)    || 0,
+    slippage:    (parseFloat(document.getElementById('uSlip').value) || 10) / 100,
+    jito_tip_sol:parseFloat(document.getElementById('uJito').value)  || 0.001,
+    max_mc_usd:  parseFloat(document.getElementById('uMc').value)    || 60000,
+    min_whale_sol:parseFloat(document.getElementById('uWhaleSol').value) || 1,
+    whale_wallets: ultraSubMode === 'whale'
+      ? document.getElementById('uWallets').value.split('\n').map(w=>w.trim()).filter(Boolean)
+      : [],
+  };
+  const btn = document.getElementById('uActBtn');
+  btn.innerHTML = '<span class="spin"></span> Arming…'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/ultra/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json();
+    if (d.success) {
+      ultraActive = true;
+      uRenderArmed();
+      ultraPoll = setInterval(uPollStatus, 2000);
+      toast(`⚡ Ultra-${ultraSubMode==='mint'?'Mint':'Whale'} ARMED — waiting for trigger`, 'ok', 4000);
+    } else {
+      toast('❌ ' + (d.error || 'Failed to arm'), 'err', 5000);
+      btn.innerHTML = '⚡ ACTIVATE ULTRA MODE'; btn.disabled = false;
+    }
+  } catch(e) {
+    toast('Request failed: ' + e.message, 'err');
+    btn.innerHTML = '⚡ ACTIVATE ULTRA MODE'; btn.disabled = false;
+  }
+}
+
+async function uPollStatus() {
+  try {
+    const r = await fetch('/api/ultra/status');
+    const d = await r.json();
+    if (!d.active && ultraActive) {
+      ultraActive = false;
+      clearInterval(ultraPoll); ultraPoll = null;
+      uRenderIdle();
+      toast('⚫ Ultra Mode complete — standing down', 'inf', 4000);
+      return;
+    }
+    uRenderStatus(d);
+  } catch {}
+}
+
+function uRenderArmed() {
+  const btn = document.getElementById('uActBtn');
+  btn.innerHTML = '🔴 DEACTIVATE ULTRA MODE';
+  btn.style.background = 'linear-gradient(135deg,#dc2626,#991b1b)';
+  btn.disabled = false;
+  document.getElementById('uStatusCard').style.display = '';
+}
+
+function uRenderIdle() {
+  const btn = document.getElementById('uActBtn');
+  btn.innerHTML = '⚡ ACTIVATE ULTRA MODE';
+  btn.style.background = 'linear-gradient(135deg,#7c3aed,#4f46e5)';
+  btn.disabled = false;
+  document.getElementById('uStatusCard').style.display = 'none';
+}
+
+function uRenderStatus(d) {
+  const stateColors = { armed:'#22c55e', scoring:'#f59e0b', buying:'#3b82f6', monitoring:'#8b5cf6', sold:'#22c55e', idle:'#6b7280', selling:'#f59e0b' };
+  const dot   = document.getElementById('uStateDot');
+  const label = document.getElementById('uStateLabel');
+  if (dot)   dot.style.background   = stateColors[d.state] || '#6b7280';
+  if (label) label.textContent      = (d.state || 'idle').toUpperCase();
+  const evEl = document.getElementById('uLastEvent');
+  if (evEl)  evEl.textContent       = d.last_event || '';
+  // Position info
+  const pi = document.getElementById('uPosInfo');
+  if (pi && d.position) {
+    const p = d.position;
+    pi.style.display = '';
+    pi.innerHTML = `
+      <div>🪙 <b>${(p.mint||'').slice(0,16)}…</b></div>
+      <div>📈 Entry: $${(p.entry_price_usd||0).toFixed(10)}</div>
+      <div>💹 Current: $${(p.current_price||0).toFixed(10)} &nbsp;|&nbsp; P&L: <b style="color:${(p.pnl_pct||0)>=0?'var(--green)':'var(--red)'}">${(p.pnl_pct||0)>=0?'+':''}${(p.pnl_pct||0).toFixed(2)}%</b></div>
+      <div>🎯 TP: $${(p.tp_target||0).toFixed(10)} &nbsp;|&nbsp; 🛑 SL: $${(p.sl_target||0).toFixed(10)}</div>
+    `;
+  } else if (pi) { pi.style.display = 'none'; }
+  // Log feed
+  const lf = document.getElementById('uLogFeed');
+  if (lf && d.log) {
+    lf.innerHTML = [...d.log].reverse().slice(0, 15).map(l =>
+      `<div style="color:${l.level==='warning'?'var(--yellow)':l.level==='error'?'var(--red)':'var(--muted)'}">[${l.time}] ${l.message}</div>`
+    ).join('');
+  }
+}
+
+async function uSaveWatchlist() {
+  const wallets = document.getElementById('uWallets').value.split('\n').map(w=>w.trim()).filter(Boolean);
+  if (!wallets.length) { toast('No wallets entered', 'inf'); return; }
+  try {
+    const r = await fetch('/api/ultra/watchlist', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ wallets })
+    });
+    const d = await r.json();
+    toast(d.success ? `✅ Watchlist saved: ${d.count} wallet(s)` : '❌ ' + d.error, d.success ? 'ok' : 'err');
+  } catch(e) { toast('Failed: ' + e.message, 'err'); }
+}
+
+// initialise Ultra tab mode on load
+uSetMode('mint');
 
 // ── Boot & polling ─────────────────────────────────────────────────────────
 fetchStatus();
