@@ -9,24 +9,21 @@ from solders.pubkey import Pubkey
 
 logger = logging.getLogger(__name__)
 
-# Only show tokens younger than this (seconds)
 MAX_TOKEN_AGE_SECS = 7200   # 2 hours
 
-# ── Pump.fun real-time new launches ─────────────────────────────────────────
+# Pump.fun bonding-curve program — holds mint/freeze authority on all active tokens (expected, safe)
+PUMP_FUN_PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+
+
+# ── Pump.fun real-time new launches ──────────────────────────────────────────
 
 def scan_pump_fun_new(limit: int = 50) -> list[dict]:
-    """
-    Fetch the most recently created tokens on Pump.fun.
-    Filters to tokens launched within the last MAX_TOKEN_AGE_SECS seconds.
-    """
     try:
         r = requests.get(
             "https://frontend-api.pump.fun/coins",
             params={
-                "offset": 0,
-                "limit":  limit,
-                "sort":   "created_timestamp",
-                "order":  "DESC",
+                "offset": 0, "limit": limit,
+                "sort": "created_timestamp", "order": "DESC",
                 "includeNsfw": "false",
             },
             timeout=10,
@@ -36,15 +33,15 @@ def scan_pump_fun_new(limit: int = 50) -> list[dict]:
             logger.warning(f"Pump.fun API status {r.status_code}")
             return []
 
-        now_ms  = time.time() * 1000
-        cutoff  = (time.time() - MAX_TOKEN_AGE_SECS) * 1000
-        coins   = r.json() if isinstance(r.json(), list) else []
+        now_ms = time.time() * 1000
+        cutoff = (time.time() - MAX_TOKEN_AGE_SECS) * 1000
+        coins  = r.json() if isinstance(r.json(), list) else []
 
         result = []
         for c in coins:
             created = c.get("created_timestamp", 0) or 0
             if created < cutoff:
-                continue  # skip old tokens
+                continue
             age_min = round((now_ms - created) / 60000, 1)
             result.append({
                 "token_address": c.get("mint", ""),
@@ -69,27 +66,19 @@ def scan_pump_fun_new(limit: int = 50) -> list[dict]:
         return []
 
 
-# ── DexScreener real-time new Solana pairs ───────────────────────────────────
+# ── DexScreener real-time new Solana pairs ────────────────────────────────────
 
 def scan_dexscreener_new_pairs(limit: int = 30) -> list[dict]:
-    """
-    Fetch the newest Solana Pump.fun pairs from DexScreener.
-    Uses the /latest/dex/pairs/solana endpoint sorted by pairCreatedAt.
-    """
     try:
-        # Token profiles endpoint — truly newest listed tokens
         r = requests.get(
             "https://api.dexscreener.com/token-profiles/latest/v1",
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10, headers={"User-Agent": "Mozilla/5.0"},
         )
         results = []
         seen    = set()
 
         if r.status_code == 200:
             profiles = r.json() if isinstance(r.json(), list) else []
-            cutoff   = time.time() - MAX_TOKEN_AGE_SECS
-
             for p in profiles:
                 if p.get("chainId") != "solana":
                     continue
@@ -110,16 +99,14 @@ def scan_dexscreener_new_pairs(limit: int = 30) -> list[dict]:
                 if len(results) >= limit:
                     break
 
-        # Also pull trending Solana pairs on pump.fun
         r2 = requests.get(
             "https://api.dexscreener.com/latest/dex/search",
-            params={"q": "pump.fun"},
-            timeout=10,
+            params={"q": "pump.fun"}, timeout=10,
             headers={"User-Agent": "Mozilla/5.0"},
         )
         if r2.status_code == 200:
-            pairs = (r2.json().get("pairs") or [])
-            cutoff_ms = (time.time() - MAX_TOKEN_AGE_SECS) * 1000
+            pairs      = (r2.json().get("pairs") or [])
+            cutoff_ms  = (time.time() - MAX_TOKEN_AGE_SECS) * 1000
             for p in pairs:
                 if p.get("chainId") != "solana":
                     continue
@@ -155,17 +142,29 @@ def scan_dexscreener_new_pairs(limit: int = 30) -> list[dict]:
         return []
 
 
-# ── On-chain mint authority check ────────────────────────────────────────────
+# ── On-chain mint authority check ─────────────────────────────────────────────
 
 def check_mint_authority(rpc_client: Client, token_mint: str) -> dict:
     """
-    Check if mint authority and freeze authority are disabled.
-    Returns quickly — if RPC times out / rate-limits, returns a soft failure.
+    Check mint/freeze authority.
+    Returns actual pubkey strings so callers can whitelist Pump.fun program.
+
+    SPL Mint layout:
+      bytes  0-3  : mintAuthority option  (0=disabled, 1=enabled)
+      bytes  4-35 : mintAuthority pubkey  (32 bytes)
+      bytes 36-43 : supply (u64)
+      bytes    44 : decimals (u8)
+      bytes    45 : isInitialized (u8)
+      bytes 46-49 : freezeAuthority option (0=disabled, 1=enabled)
+      bytes 50-81 : freezeAuthority pubkey (32 bytes)
     """
     try:
         resp = rpc_client.get_account_info(Pubkey.from_string(token_mint))
         if not resp.value or not resp.value.data:
-            return {"mint_auth_disabled": False, "freeze_auth_disabled": False, "error": "No data"}
+            return {
+                "mint_auth_disabled": False, "freeze_auth_disabled": False,
+                "mint_authority": None, "freeze_authority": None, "error": "No data",
+            }
 
         raw = resp.value.data
         if isinstance(raw, (list, tuple)):
@@ -176,35 +175,41 @@ def check_mint_authority(rpc_client: Client, token_mint: str) -> dict:
             data = base64.b64decode(str(raw))
 
         if len(data) < 82:
-            return {"mint_auth_disabled": False, "freeze_auth_disabled": False, "error": "Data too short"}
+            return {
+                "mint_auth_disabled": False, "freeze_auth_disabled": False,
+                "mint_authority": None, "freeze_authority": None, "error": "Data too short",
+            }
 
-        # SPL Mint layout: bytes 0-3 = mintAuthority option (0=None), bytes 46-49 = freezeAuthority option
         mint_auth_opt   = struct.unpack("<I", data[0:4])[0]
         freeze_auth_opt = struct.unpack("<I", data[46:50])[0]
+
+        mint_auth_key   = str(Pubkey.from_bytes(data[4:36]))  if mint_auth_opt   == 1 else None
+        freeze_auth_key = str(Pubkey.from_bytes(data[50:82])) if freeze_auth_opt == 1 else None
 
         return {
             "mint_auth_disabled":   mint_auth_opt   == 0,
             "freeze_auth_disabled": freeze_auth_opt == 0,
+            "mint_authority":       mint_auth_key,
+            "freeze_authority":     freeze_auth_key,
         }
     except Exception as e:
         logger.debug(f"check_mint_authority: {e}")
-        return {"mint_auth_disabled": False, "freeze_auth_disabled": False, "error": str(e)}
+        return {
+            "mint_auth_disabled": False, "freeze_auth_disabled": False,
+            "mint_authority": None, "freeze_authority": None, "error": str(e),
+        }
 
 
 def check_top_holders(rpc_client: Client, token_mint: str,
                       bonding_curve_addr: str | None = None,
                       threshold_pct: float = 30.0) -> dict:
-    """
-    Check top-10 holder concentration.
-    Handles 429 / rate-limit gracefully — returns unchecked result instead of crashing.
-    """
     try:
         resp = rpc_client.get_token_largest_accounts(Pubkey.from_string(token_mint))
         if not resp.value:
             return {"concentrated": False, "top10_pct": 0.0, "holders": [], "skipped": True}
 
-        accounts = resp.value[:10]
-        supply_resp = rpc_client.get_token_supply(Pubkey.from_string(token_mint))
+        accounts     = resp.value[:10]
+        supply_resp  = rpc_client.get_token_supply(Pubkey.from_string(token_mint))
         total_supply = float((supply_resp.value.amount if supply_resp.value else None) or 0)
 
         if total_supply == 0:
@@ -232,7 +237,6 @@ def check_top_holders(rpc_client: Client, token_mint: str,
             "skipped":      False,
         }
     except Exception as e:
-        # Silently skip — common on public RPC due to rate limits
         logger.debug(f"check_top_holders skipped ({type(e).__name__}): {e}")
         return {"concentrated": False, "top10_pct": 0.0, "holders": [], "skipped": True, "error": str(e)}
 
@@ -241,23 +245,34 @@ def full_token_scan(rpc_client: Client, token_mint: str,
                     bonding_curve_addr: str | None = None) -> dict:
     """
     Combined on-chain safety scan.
-    Mint authority check is always attempted.
-    Holder check gracefully skipped on rate-limit.
+    Whitelists Pump.fun program as safe mint/freeze authority holder.
     """
     mint_check   = check_mint_authority(rpc_client, token_mint)
-    time.sleep(0.15)   # small pause to avoid 429 cascade
+    time.sleep(0.15)
     holder_check = check_top_holders(rpc_client, token_mint, bonding_curve_addr)
 
     warnings = []
     score    = 100
 
+    # ── Mint authority — whitelist Pump.fun program ──
+    mint_auth = mint_check.get("mint_authority")
     if not mint_check.get("mint_auth_disabled"):
-        warnings.append("⚠ Mint authority ENABLED — dev can print tokens")
-        score -= 35
+        if mint_auth == PUMP_FUN_PROGRAM_ID:
+            pass  # ✅ Pump.fun bonding curve holds it — expected and safe
+        else:
+            holder_str = f"{mint_auth[:12]}…" if mint_auth else "unknown"
+            warnings.append(f"⚠ Mint authority ENABLED — held by {holder_str}")
+            score -= 35
 
+    # ── Freeze authority — whitelist Pump.fun program ──
+    freeze_auth = mint_check.get("freeze_authority")
     if not mint_check.get("freeze_auth_disabled"):
-        warnings.append("⚠ Freeze authority ENABLED — dev can freeze wallets")
-        score -= 25
+        if freeze_auth == PUMP_FUN_PROGRAM_ID:
+            pass  # ✅ Pump.fun holds it — safe
+        else:
+            holder_str = f"{freeze_auth[:12]}…" if freeze_auth else "unknown"
+            warnings.append(f"⚠ Freeze authority ENABLED — held by {holder_str}")
+            score -= 25
 
     if not holder_check.get("skipped") and holder_check.get("concentrated"):
         pct = holder_check.get("top10_pct", 0)
@@ -271,6 +286,8 @@ def full_token_scan(rpc_client: Client, token_mint: str,
         "warnings":            warnings,
         "mint_auth_disabled":  mint_check.get("mint_auth_disabled", False),
         "freeze_auth_disabled":mint_check.get("freeze_auth_disabled", False),
+        "mint_authority":      mint_check.get("mint_authority"),
+        "freeze_authority":    mint_check.get("freeze_authority"),
         "top10_pct":           holder_check.get("top10_pct", 0.0),
         "concentrated":        holder_check.get("concentrated", False),
         "holders_skipped":     holder_check.get("skipped", False),

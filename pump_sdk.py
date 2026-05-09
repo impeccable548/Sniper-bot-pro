@@ -1,4 +1,4 @@
-# pump_sdk.py - Pump.fun SDK: Buy + Sell + Jito Tip + CloseAccount rent recovery
+# pump_sdk.py - Pump.fun SDK: Buy + Sell + Jito Tip + CloseAccount + MEV detection
 import base58
 import struct
 import time
@@ -31,13 +31,36 @@ GLOBAL_STATE             = Pubkey.from_string("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy
 BUY_DISCRIMINATOR  = bytes([0x66, 0x06, 0x3d, 0x12, 0x01, 0xda, 0xeb, 0xea])
 SELL_DISCRIMINATOR = bytes([0x33, 0xe6, 0x85, 0xa4, 0x01, 0x7f, 0x83, 0xad])
 
-# Hard compute limit — never let network default to 1.4M
-COMPUTE_UNIT_LIMIT = 200_000
+COMPUTE_UNIT_LIMIT        = 200_000
+DEFAULT_BUY_PRIORITY_FEE  = 100_000
+DEFAULT_SELL_PRIORITY_FEE = 800_000
 
-# Default priority fees (micro-lamports)
-DEFAULT_BUY_PRIORITY_FEE  =   100_000
-DEFAULT_SELL_PRIORITY_FEE =   800_000
 
+# ── Sandwich / MEV detection (module-level, no wallet needed) ─────────────────
+
+def detect_sandwich_attack(expected_tokens: float, actual_tokens: float,
+                           expected_slippage: float) -> dict:
+    """
+    Compare expected vs actual tokens received after a buy.
+    If actual slippage > expected slippage + 10% threshold → likely sandwiched.
+    """
+    if expected_tokens <= 0:
+        return {"sandwiched": False, "actual_slippage_pct": 0.0,
+                "expected_tokens": expected_tokens, "actual_tokens": actual_tokens}
+
+    actual_slippage = (expected_tokens - actual_tokens) / expected_tokens
+    sandwiched      = actual_slippage > (expected_slippage + 0.10)
+
+    return {
+        "sandwiched":           sandwiched,
+        "expected_tokens":      round(expected_tokens, 2),
+        "actual_tokens":        round(actual_tokens, 2),
+        "expected_slippage_pct":round(expected_slippage * 100, 2),
+        "actual_slippage_pct":  round(actual_slippage * 100, 2),
+    }
+
+
+# ── PumpFunSDK ────────────────────────────────────────────────────────────────
 
 class PumpFunSDK:
     def __init__(self, rpc_url: str, private_key: str,
@@ -96,7 +119,6 @@ class PumpFunSDK:
     # ── Transaction helpers ───────────────────────────────────────────────────
 
     def _base_ixs(self, priority_fee: int) -> list:
-        """Always hard-limit compute to 200k."""
         ixs = [
             set_compute_unit_limit(COMPUTE_UNIT_LIMIT),
             set_compute_unit_price(priority_fee),
@@ -105,67 +127,98 @@ class PumpFunSDK:
             ixs.append(build_jito_tip_instruction(self.wallet.pubkey(), self.jito_tip_lamports))
         return ixs
 
-    def _send_and_confirm(self, instructions: list, max_attempts: int = 40) -> dict:
+    def _send_and_confirm(self, instructions: list, max_attempts: int = 40,
+                          max_retries: int = 3) -> dict:
+        """
+        Send transaction with exponential-backoff retry on network/timeout failures.
+        Retries up to max_retries times: backoff = 2^retry seconds (2, 4, 8).
+        """
         if not self.wallet:
             return {"success": False, "error": "No wallet"}
 
-        recent_blockhash = self.client.get_latest_blockhash().value.blockhash
-        msg = MessageV0.try_compile(
-            payer=self.wallet.pubkey(),
-            instructions=instructions,
-            address_lookup_table_accounts=[],
-            recent_blockhash=recent_blockhash,
-        )
-        tx  = VersionedTransaction(msg, [self.wallet])
-        raw = bytes(tx)
+        last_error = "Unknown error"
 
-        # Attempt Jito bundle first if configured
-        jito_url = os.getenv("JITO_BLOCK_ENGINE_URL", "")
-        if self.use_jito and jito_url:
-            bundle_result = submit_jito_bundle(raw, jito_url)
-            if bundle_result.get("success"):
-                logger.info(f"TX submitted via Jito bundle: {bundle_result.get('bundle_id')}")
+        for retry in range(max_retries + 1):
+            if retry > 0:
+                wait = 2 ** retry
+                logger.info(f"TX retry {retry}/{max_retries} — waiting {wait}s (backoff)…")
+                time.sleep(wait)
 
-        # Always also send via normal RPC (fallback + confirmation path)
-        resp = self.client.send_transaction(
-            tx, opts=TxOpts(skip_preflight=True, max_retries=3)
-        )
-        sig = str(resp.value)
-        logger.info(f"TX sent: {sig}")
-
-        for _ in range(max_attempts):
-            time.sleep(2)
             try:
-                sig_bytes   = base58.b58decode(sig)
-                status_resp = self.client.get_signature_statuses([sig_bytes])
-                if status_resp and status_resp.value and status_resp.value[0]:
-                    s = status_resp.value[0]
-                    if s.err:
-                        return {"success": False, "error": f"TX failed: {s.err}", "signature": sig}
-                    if s.confirmation_status:
-                        logger.info(f"TX confirmed: {sig}")
-                        return {"success": True, "signature": sig}
-            except Exception:
-                continue
+                recent_blockhash = self.client.get_latest_blockhash().value.blockhash
+                msg = MessageV0.try_compile(
+                    payer=self.wallet.pubkey(),
+                    instructions=instructions,
+                    address_lookup_table_accounts=[],
+                    recent_blockhash=recent_blockhash,
+                )
+                tx  = VersionedTransaction(msg, [self.wallet])
+                raw = bytes(tx)
 
-        logger.warning("TX confirmation timeout — assuming success")
-        return {"success": True, "signature": sig}
+                jito_url = os.getenv("JITO_BLOCK_ENGINE_URL", "")
+                if self.use_jito and jito_url:
+                    bundle_result = submit_jito_bundle(raw, jito_url)
+                    if bundle_result.get("success"):
+                        logger.info(f"TX via Jito bundle: {bundle_result.get('bundle_id')}")
+
+                resp = self.client.send_transaction(
+                    tx, opts=TxOpts(skip_preflight=True, max_retries=3)
+                )
+                sig = str(resp.value)
+                logger.info(f"TX sent: {sig}")
+
+                confirmed = False
+                tx_error  = None
+                for _ in range(max_attempts):
+                    time.sleep(2)
+                    try:
+                        sig_bytes   = base58.b58decode(sig)
+                        status_resp = self.client.get_signature_statuses([sig_bytes])
+                        if status_resp and status_resp.value and status_resp.value[0]:
+                            s = status_resp.value[0]
+                            if s.err:
+                                tx_error  = f"TX failed on-chain: {s.err}"
+                                break
+                            if s.confirmation_status:
+                                logger.info(f"TX confirmed: {sig}")
+                                confirmed = True
+                                break
+                    except Exception:
+                        continue
+
+                if confirmed:
+                    return {"success": True, "signature": sig}
+
+                if tx_error:
+                    last_error = tx_error
+                    logger.warning(f"TX on-chain error (attempt {retry+1}): {tx_error}")
+                    # Don't retry on-chain failures — the TX was processed, just failed
+                    return {"success": False, "error": tx_error, "signature": sig}
+                else:
+                    # Timeout — assume success on last retry, retry otherwise
+                    if retry == max_retries:
+                        logger.warning(f"TX confirmation timeout after {max_retries+1} attempts — assuming success")
+                        return {"success": True, "signature": sig}
+                    last_error = "Confirmation timeout"
+                    logger.warning(f"TX timeout on attempt {retry+1} — will retry")
+
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"TX attempt {retry+1} exception: {e}")
+
+        return {"success": False, "error": last_error}
 
     # ── CloseAccount (rent recovery) ─────────────────────────────────────────
 
     def _build_close_account_ix(self, token_account: Pubkey) -> Instruction:
-        """
-        SPL Token CloseAccount instruction.
-        Closes the ATA and sends the ~0.002 SOL rent back to the wallet.
-        """
         return Instruction(
             program_id=TOKEN_PROGRAM,
             accounts=[
-                AccountMeta(pubkey=token_account,      is_signer=False, is_writable=True),
-                AccountMeta(pubkey=self.wallet.pubkey(),is_signer=False, is_writable=True),
-                AccountMeta(pubkey=self.wallet.pubkey(),is_signer=True,  is_writable=False),
+                AccountMeta(pubkey=token_account,       is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(), is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(), is_signer=True,  is_writable=False),
             ],
-            data=bytes([9]),  # CloseAccount discriminant
+            data=bytes([9]),
         )
 
     # ── BUY ───────────────────────────────────────────────────────────────────
@@ -176,11 +229,11 @@ class PumpFunSDK:
             if not self.wallet:
                 return {"success": False, "error": "No wallet configured"}
 
-            pf        = priority_fee if priority_fee is not None else self.buy_priority_fee
-            mint_pk   = Pubkey.from_string(token_mint)
-            bc_pk     = Pubkey.from_string(bonding_curve)
-            assoc_bc  = self.derive_associated_bonding_curve(bonding_curve, token_mint)
-            user_ata  = self.get_associated_token_address(str(self.wallet.pubkey()), token_mint)
+            pf       = priority_fee if priority_fee is not None else self.buy_priority_fee
+            mint_pk  = Pubkey.from_string(token_mint)
+            bc_pk    = Pubkey.from_string(bonding_curve)
+            assoc_bc = self.derive_associated_bonding_curve(bonding_curve, token_mint)
+            user_ata = self.get_associated_token_address(str(self.wallet.pubkey()), token_mint)
 
             if not assoc_bc or not user_ata:
                 return {"success": False, "error": "PDA derivation failed"}
@@ -193,18 +246,18 @@ class PumpFunSDK:
             data.extend(struct.pack('<Q', int(max_sol_cost * 1e9)))
 
             accounts = [
-                AccountMeta(pubkey=GLOBAL_STATE,                     is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,           is_signer=False, is_writable=True),
-                AccountMeta(pubkey=mint_pk,                          is_signer=False, is_writable=False),
-                AccountMeta(pubkey=bc_pk,                            is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),     is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(user_ata),     is_signer=False, is_writable=True),
-                AccountMeta(pubkey=self.wallet.pubkey(),             is_signer=True,  is_writable=True),
-                AccountMeta(pubkey=SYS_PROGRAM_ID,                   is_signer=False, is_writable=False),
-                AccountMeta(pubkey=TOKEN_PROGRAM,                    is_signer=False, is_writable=False),
-                AccountMeta(pubkey=RENT,                             is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,         is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                 is_signer=False, is_writable=False),
+                AccountMeta(pubkey=GLOBAL_STATE,                    is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,          is_signer=False, is_writable=True),
+                AccountMeta(pubkey=mint_pk,                         is_signer=False, is_writable=False),
+                AccountMeta(pubkey=bc_pk,                           is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),    is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(user_ata),    is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(),            is_signer=True,  is_writable=True),
+                AccountMeta(pubkey=SYS_PROGRAM_ID,                  is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM,                   is_signer=False, is_writable=False),
+                AccountMeta(pubkey=RENT,                            is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,        is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                is_signer=False, is_writable=False),
             ]
 
             buy_ix       = Instruction(program_id=PUMP_FUN_PROGRAM, accounts=accounts, data=bytes(data))
@@ -225,10 +278,6 @@ class PumpFunSDK:
                    token_amount: int, min_sol_output: float = 0.0,
                    priority_fee: int | None = None,
                    close_account: bool = True) -> dict:
-        """
-        Sell `token_amount` raw units.
-        Bundles a CloseAccount instruction to recover ~0.002 SOL rent.
-        """
         try:
             if not self.wallet:
                 return {"success": False, "error": "No wallet configured"}
@@ -249,24 +298,23 @@ class PumpFunSDK:
             data.extend(struct.pack('<Q', min_sol_lamports))
 
             accounts = [
-                AccountMeta(pubkey=GLOBAL_STATE,                     is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,           is_signer=False, is_writable=True),
-                AccountMeta(pubkey=mint_pk,                          is_signer=False, is_writable=False),
-                AccountMeta(pubkey=bc_pk,                            is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),     is_signer=False, is_writable=True),
-                AccountMeta(pubkey=Pubkey.from_string(user_ata),     is_signer=False, is_writable=True),
-                AccountMeta(pubkey=self.wallet.pubkey(),             is_signer=True,  is_writable=True),
-                AccountMeta(pubkey=SYS_PROGRAM_ID,                   is_signer=False, is_writable=False),
-                AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM,         is_signer=False, is_writable=False),
-                AccountMeta(pubkey=TOKEN_PROGRAM,                    is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,         is_signer=False, is_writable=False),
-                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                 is_signer=False, is_writable=False),
+                AccountMeta(pubkey=GLOBAL_STATE,                    is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_FEE_RECIPIENT,          is_signer=False, is_writable=True),
+                AccountMeta(pubkey=mint_pk,                         is_signer=False, is_writable=False),
+                AccountMeta(pubkey=bc_pk,                           is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(assoc_bc),    is_signer=False, is_writable=True),
+                AccountMeta(pubkey=Pubkey.from_string(user_ata),    is_signer=False, is_writable=True),
+                AccountMeta(pubkey=self.wallet.pubkey(),            is_signer=True,  is_writable=True),
+                AccountMeta(pubkey=SYS_PROGRAM_ID,                  is_signer=False, is_writable=False),
+                AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM,        is_signer=False, is_writable=False),
+                AccountMeta(pubkey=TOKEN_PROGRAM,                   is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_EVENT_AUTHORITY,        is_signer=False, is_writable=False),
+                AccountMeta(pubkey=PUMP_FUN_PROGRAM,                is_signer=False, is_writable=False),
             ]
 
-            sell_ix = Instruction(program_id=PUMP_FUN_PROGRAM, accounts=accounts, data=bytes(data))
+            sell_ix      = Instruction(program_id=PUMP_FUN_PROGRAM, accounts=accounts, data=bytes(data))
             instructions = self._base_ixs(pf) + [sell_ix]
 
-            # Bundle CloseAccount to recover rent (~0.002 SOL) in the same TX
             if close_account:
                 close_ix = self._build_close_account_ix(Pubkey.from_string(user_ata))
                 instructions.append(close_ix)

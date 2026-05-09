@@ -1,5 +1,5 @@
 # bot_logic.py - Sniper Pro Bot — Full Engine (Demo / Semi-Auto / Full-Auto)
-import json, time, threading, os, base64, struct, logging, sys, functools
+import json, time, threading, os, base64, struct, logging, sys, functools, math, random
 from datetime import datetime
 from enum import Enum
 
@@ -8,7 +8,7 @@ from solana.rpc.api import Client
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from pump_sdk import PumpFunSDK
+from pump_sdk import PumpFunSDK, detect_sandwich_attack
 from scanner import scan_pump_fun_new, scan_dexscreener_new_pairs, full_token_scan
 import notifier
 
@@ -30,17 +30,16 @@ MAX_LOG        = 300
 
 
 class Mode(str, Enum):
-    DEMO      = "demo"       # Paper trading — no real transactions
-    SEMI_AUTO = "semi"       # Manual buy trigger, auto TP/SL
-    FULL_AUTO = "full"       # Fully autonomous scan + buy + sell
+    DEMO      = "demo"
+    SEMI_AUTO = "semi"
+    FULL_AUTO = "full"
 
 
-# ── Safety / honeypot check (external APIs) ───────────────────────────────────
+# ── External safety / honeypot check ─────────────────────────────────────────
 
 def check_honeypot(token_address: str) -> dict:
     warnings, score = [], 100
 
-    # 1. RugCheck
     try:
         r = requests.get(
             f"https://api.rugcheck.xyz/v1/tokens/{token_address}/report/summary", timeout=8
@@ -54,7 +53,6 @@ def check_honeypot(token_address: str) -> dict:
     except Exception:
         pass
 
-    # 2. Pump.fun metadata
     try:
         r = requests.get(f"https://pump.fun/api/token/{token_address}", timeout=6)
         if r.status_code == 200:
@@ -69,7 +67,6 @@ def check_honeypot(token_address: str) -> dict:
     except Exception:
         pass
 
-    # 3. DexScreener liquidity
     try:
         r = requests.get(
             f"https://api.dexscreener.com/latest/dex/tokens/{token_address}", timeout=8
@@ -111,6 +108,98 @@ def fetch_sol_price() -> float:
     return 150.0
 
 
+# ── Enhancement 1: Jupiter price cross-validation ────────────────────────────
+
+def validate_price_with_jupiter(mint: str, bonding_curve_price: float) -> tuple[bool, float]:
+    """
+    Cross-check bonding-curve parsed price against Jupiter aggregator.
+    If divergence >15%, use Jupiter price as the authoritative value.
+    Returns (is_valid, final_price).
+    """
+    try:
+        r = requests.get(
+            "https://price.jup.ag/v4/price",
+            params={"ids": mint}, timeout=5,
+        )
+        if r.status_code == 200:
+            data      = r.json().get("data", {}).get(mint, {})
+            jup_price = float(data.get("price", 0) or 0)
+            if jup_price > 0 and bonding_curve_price > 0:
+                divergence = abs(bonding_curve_price - jup_price) / jup_price
+                if divergence > 0.15:
+                    logger.warning(
+                        f"Jupiter price divergence {divergence:.1%} — "
+                        f"bonding curve: ${bonding_curve_price:.10f}, "
+                        f"Jupiter: ${jup_price:.10f} — using Jupiter"
+                    )
+                    return False, jup_price
+                return True, bonding_curve_price
+    except Exception:
+        pass
+    return True, bonding_curve_price
+
+
+# ── Enhancement 2: Dynamic slippage ──────────────────────────────────────────
+
+def calculate_dynamic_slippage(market_cap_usd: float, age_min: float) -> float:
+    """
+    Adaptive slippage tiers based on market cap and token age.
+    Micro-caps / brand-new tokens need more headroom.
+    """
+    if market_cap_usd < 5_000 and age_min < 30:
+        return 0.25   # brand-new micro-cap
+    if market_cap_usd < 50_000 and age_min < 120:
+        return 0.15   # growing token
+    return 0.08       # established — tight
+
+
+# ── Enhancement 4: Position size scaling ─────────────────────────────────────
+
+def calculate_buy_size(safety_score: int, requested_sol: float) -> float:
+    """Scale position size by safety confidence score."""
+    if safety_score >= 80:
+        return requested_sol
+    if safety_score >= 60:
+        return round(requested_sol * 0.70, 4)
+    if safety_score >= 40:
+        return round(requested_sol * 0.30, 4)
+    return 0.0   # below 40 — block
+
+
+# ── Enhancement 6: Realistic demo simulation ─────────────────────────────────
+
+def simulate_realistic_price_move(last_price: float, trend: str,
+                                  entry_price: float) -> tuple[float, str]:
+    """
+    Log-normal price walk with trend states.
+    Distribution: 60% neutral, 20% pump, 20% dump.
+    Rare: 1% moon shot, 2% rug/crash.
+    Returns (new_price, new_trend).
+    """
+    r = random.random()
+    if r < 0.01:   # moon
+        return min(last_price * random.uniform(1.5, 3.0), entry_price * 5.0), "pump"
+    if r < 0.03:   # crash
+        return max(last_price * random.uniform(0.10, 0.40), entry_price * 0.05), "dump"
+
+    # Trend state transitions
+    t = random.random()
+    if trend == "neutral":
+        if t < 0.20:   trend = "pump"
+        elif t < 0.40: trend = "dump"
+    elif trend == "pump":
+        if t < 0.15:   trend = "neutral"
+        elif t < 0.20: trend = "dump"
+    else:  # dump
+        if t < 0.15:   trend = "neutral"
+        elif t < 0.20: trend = "pump"
+
+    drift = {"pump": 0.04, "dump": -0.05, "neutral": 0.0}[trend]
+    sigma = {"pump": 0.04, "dump": 0.04,  "neutral": 0.03}[trend]
+    move  = math.exp(random.gauss(drift, sigma)) - 1
+    return max(last_price * (1 + move), entry_price * 0.01), trend
+
+
 # ── BotManager ────────────────────────────────────────────────────────────────
 
 class BotManager:
@@ -122,11 +211,19 @@ class BotManager:
 
         self.positions:    dict[str, dict] = {}
         self.activity_log: list[dict]      = []
-        # Scanner results (for full-auto and the scanner tab)
         self.scan_results: list[dict]      = []
         self._lock = threading.Lock()
 
-        # Thread handles
+        # Enhancement 5: Arm/confirm system
+        self.pending_confirmations: dict = {}
+        self._confirmation_lock          = threading.Lock()
+
+        # Enhancement 12: Stuck position tracking
+        self._last_stuck_check = 0.0
+
+        # Enhancement 6: Demo price trend per position
+        self._demo_trends: dict = {}
+
         self._monitor_thread = None
         self._scanner_thread = None
         self._running        = False
@@ -136,8 +233,8 @@ class BotManager:
         self._ensure_monitor()
 
     def _reinit_client_and_sdk(self):
-        self.client  = Client(self.rpc_url)
-        self.wallet  = None
+        self.client = Client(self.rpc_url)
+        self.wallet = None
         if self.private_key:
             try:
                 self.wallet = Keypair.from_bytes(base58.b58decode(self.private_key))
@@ -154,7 +251,6 @@ class BotManager:
         )
 
     def reload_config(self, private_key: str = None, rpc_url: str = None):
-        """Hot-reload credentials without restarting the process."""
         if private_key:
             self.private_key = private_key
         if rpc_url:
@@ -170,6 +266,20 @@ class BotManager:
                 with open(POSITIONS_FILE) as f:
                     self.positions = json.load(f)
                 logger.info(f"Loaded {len(self.positions)} positions")
+
+                # Enhancement 10: Orphan detection — real positions from previous session
+                orphans = [
+                    addr for addr, pos in self.positions.items()
+                    if pos.get("status") == "active" and pos.get("mode") != "demo"
+                ]
+                if orphans:
+                    logger.warning(f"⚠️ {len(orphans)} orphaned real position(s) resumed from last session")
+                    for addr in orphans:
+                        notifier.notify(
+                            f"⚠️ <b>ORPHANED POSITION RESUMED</b>\n"
+                            f"🪙 <code>{addr[:16]}…</code>\n"
+                            f"Bot restarted — monitoring resumed automatically."
+                        )
             except Exception as e:
                 logger.error(f"Load positions: {e}")
 
@@ -180,10 +290,15 @@ class BotManager:
         except Exception as e:
             logger.error(f"Save positions: {e}")
 
-    # ── Logging ───────────────────────────────────────────────────────────────
+    # ── Logging (Enhancement 11: event_type) ─────────────────────────────────
 
-    def _log(self, msg: str, level: str = "info"):
-        entry = {"time": datetime.now().strftime("%H:%M:%S"), "message": msg, "level": level}
+    def _log(self, msg: str, level: str = "info", event_type: str = None):
+        entry = {
+            "time":       datetime.now().strftime("%H:%M:%S"),
+            "message":    msg,
+            "level":      level,
+            "event_type": event_type,
+        }
         self.activity_log.append(entry)
         if len(self.activity_log) > MAX_LOG:
             self.activity_log.pop(0)
@@ -235,7 +350,7 @@ class BotManager:
             for acct in resp.value:
                 info = self.client.get_account_info(acct.pubkey)
                 if info.value:
-                    d = info.value.data
+                    d   = info.value.data
                     raw = base64.b64decode(d[0]) if isinstance(d, (list, tuple)) else d
                     return struct.unpack("<Q", raw[64:72])[0]
             return 0
@@ -254,25 +369,24 @@ class BotManager:
     # ── Safety ────────────────────────────────────────────────────────────────
 
     def run_safety_check(self, token_address: str) -> dict:
-        self._log(f"🔍 Safety check: {token_address[:8]}…")
-        # External API checks
-        ext = check_honeypot(token_address)
-        # On-chain checks (mint authority, top holders)
-        bc  = self.pump_sdk.derive_bonding_curve(token_address)
+        self._log(f"🔍 Safety check: {token_address[:8]}…", event_type="SAFETY_CHECK")
+        ext   = check_honeypot(token_address)
+        bc    = self.pump_sdk.derive_bonding_curve(token_address)
         chain = full_token_scan(self.client, token_address, bc)
 
-        # Merge results
         warnings = ext["warnings"] + chain["warnings"]
         score    = min(ext["score"], chain["score"])
         safe     = score >= 40 and ext["safe"] and chain["safe"]
 
         for w in warnings:
-            self._log(w, "warning")
-        self._log(f"Safety score: {score}/100 {'✅' if safe else '⛔'}")
+            self._log(w, "warning", "SAFETY_CHECK")
+        self._log(f"Safety score: {score}/100 {'✅' if safe else '⛔'}", event_type="SAFETY_CHECK")
         return {
             "safe": safe, "warnings": warnings, "score": score,
             "mint_auth_disabled":   chain.get("mint_auth_disabled", False),
             "freeze_auth_disabled": chain.get("freeze_auth_disabled", False),
+            "mint_authority":       chain.get("mint_authority"),
+            "freeze_authority":     chain.get("freeze_authority"),
             "top10_pct":            chain.get("top10_pct", 0.0),
             "concentrated":         chain.get("concentrated", False),
         }
@@ -289,6 +403,116 @@ class BotManager:
                 self._scan_running = False
         except ValueError:
             self._log(f"Unknown mode: {mode_str}", "error")
+
+    # ── Enhancement 5: Arm / Confirm (2-step Semi-Auto) ───────────────────────
+
+    def arm_position(self, token_address: str, config: dict) -> dict:
+        """Run safety check and arm position. User has 30s to confirm."""
+        if not self.wallet:
+            return {"success": False, "error": "Private key not configured"}
+        if token_address in self.positions:
+            return {"success": False, "error": "Already tracking this token"}
+
+        safety = self.run_safety_check(token_address)
+        if not safety["safe"]:
+            notifier.notify_safety_fail(token_address, safety["score"], safety["warnings"])
+            return {"success": False, "error": "Safety check failed", "safety": safety}
+
+        expires_at = time.time() + 30
+        with self._confirmation_lock:
+            self.pending_confirmations[token_address] = {
+                "config":     config,
+                "safety":     safety,
+                "expires_at": expires_at,
+                "armed_at":   datetime.now().isoformat(),
+            }
+
+        entry_est = 0.0
+        try:
+            bc = self.pump_sdk.derive_bonding_curve(token_address)
+            p, _ = self.get_token_price(bc)
+            entry_est = p * fetch_sol_price()
+        except Exception:
+            pass
+
+        self._log(f"🔐 Position ARMED: {token_address[:8]}… — confirm within 30s", event_type="BUY")
+        return {
+            "success":    True,
+            "status":     "ARMED — confirm within 30 seconds",
+            "expires_at": expires_at,
+            "safety":     safety,
+            "entry_est":  entry_est,
+        }
+
+    def confirm_position(self, token_address: str) -> dict:
+        """Execute buy for an armed position if still within 30s window."""
+        with self._confirmation_lock:
+            pending = self.pending_confirmations.get(token_address)
+
+        if not pending:
+            return {"success": False, "error": "No armed position for this token"}
+        if time.time() > pending["expires_at"]:
+            with self._confirmation_lock:
+                self.pending_confirmations.pop(token_address, None)
+            return {"success": False, "error": "Confirmation window expired (30s)"}
+
+        with self._confirmation_lock:
+            self.pending_confirmations.pop(token_address, None)
+
+        cfg = pending["config"]
+        return self.start_bot(
+            token_address         = token_address,
+            buy_amount_sol        = cfg.get("buy_amount_sol", 0.05),
+            take_profit_percent   = cfg.get("take_profit_percent", 75),
+            stop_loss_percent     = cfg.get("stop_loss_percent", 15),
+            trailing_stop_percent = cfg.get("trailing_stop_percent", 0),
+            slippage              = cfg.get("slippage", 0.10),
+            buy_priority_fee      = cfg.get("buy_priority_fee", 100_000),
+            sell_priority_fee     = cfg.get("sell_priority_fee", 800_000),
+            skip_safety           = True,  # already checked during arm
+        )
+
+    # ── Enhancement 12: Stuck position alerts ────────────────────────────────
+
+    def check_stuck_positions(self):
+        """Alert via Telegram if any active position hasn't been updated in 5+ minutes."""
+        now = datetime.now()
+        for addr, pos in self.positions.items():
+            if pos.get("status") != "active":
+                continue
+            try:
+                last_upd = pos.get("last_update", "")
+                dt       = datetime.fromisoformat(last_upd)
+                age_s    = (now - dt).total_seconds()
+                if age_s > 300:
+                    self._log(
+                        f"⚠️ STUCK: {addr[:8]}… not updated for {age_s/60:.1f}min",
+                        "warning", "STUCK"
+                    )
+                    notifier.notify(
+                        f"⚠️ <b>STUCK POSITION ALERT</b>\n"
+                        f"🪙 <code>{addr[:16]}…</code>\n"
+                        f"⏱ Last update: <b>{age_s/60:.1f} minutes ago</b>\n"
+                        f"Monitor may be stalled — check the bot."
+                    )
+            except Exception:
+                continue
+
+    # ── Enhancement 10: Graceful shutdown ────────────────────────────────────
+
+    def shutdown_gracefully(self):
+        """Stop all threads and save state cleanly on SIGTERM/SIGINT."""
+        self._log("🔄 Graceful shutdown initiated…")
+        self._running      = False
+        self._scan_running = False
+
+        for t in [self._monitor_thread, self._scanner_thread]:
+            if t and t.is_alive():
+                t.join(timeout=10)
+
+        self._save_positions()
+        self._log("✅ Shutdown complete — positions saved")
+        logger.info("BotManager shutdown complete")
 
     # ── Buy ───────────────────────────────────────────────────────────────────
 
@@ -309,7 +533,6 @@ class BotManager:
         if token_address in self.positions:
             return {"success": False, "error": "Already tracking this token"}
 
-        # Balance check (skip in demo)
         if effective_mode != Mode.DEMO:
             sol_bal = self.get_sol_balance()
             if sol_bal < buy_amount_sol + 0.01:
@@ -323,22 +546,60 @@ class BotManager:
                 notifier.notify_safety_fail(token_address, safety["score"], safety["warnings"])
                 return {"success": False, "error": "Safety check failed", "safety": safety}
 
+        # ── Enhancement 4: Position size scaling ──
+        score = safety.get("score", 100)
+        if effective_mode != Mode.DEMO:
+            scaled = calculate_buy_size(score, buy_amount_sol)
+            if scaled == 0.0:
+                return {"success": False, "error": f"Safety score {score}/100 too low — buy blocked by risk filter"}
+            if scaled != buy_amount_sol:
+                self._log(
+                    f"📐 Position scaled: {buy_amount_sol} SOL → {scaled} SOL (score {score}/100)",
+                    event_type="SCALING"
+                )
+                buy_amount_sol = scaled
+
+        # ── Enhancement 2: Dynamic slippage ──
+        if slippage == 0.10 and effective_mode != Mode.DEMO:
+            mc_usd, age_min_val = 0.0, 0.0
+            try:
+                r = requests.get(
+                    f"https://api.dexscreener.com/latest/dex/tokens/{token_address}",
+                    timeout=5
+                )
+                if r.status_code == 200:
+                    pairs = r.json().get("pairs") or []
+                    if pairs:
+                        mc_usd      = float(pairs[0].get("marketCap") or 0)
+                        created_ms  = pairs[0].get("pairCreatedAt") or 0
+                        age_min_val = (time.time() * 1000 - created_ms) / 60000 if created_ms else 0
+            except Exception:
+                pass
+            dyn_slip = calculate_dynamic_slippage(mc_usd, age_min_val)
+            if dyn_slip != slippage:
+                self._log(
+                    f"⚡ Dynamic slippage: {slippage*100:.0f}% → {dyn_slip*100:.0f}%"
+                    f" (MC ${mc_usd:,.0f}, age {age_min_val:.0f}min)",
+                    event_type="SLIPPAGE"
+                )
+                slippage = dyn_slip
+
         self.pump_sdk.slippage          = slippage
         self.pump_sdk.buy_priority_fee  = buy_priority_fee
         self.pump_sdk.sell_priority_fee = sell_priority_fee
 
-        # ── In Demo mode skip all RPC calls — simulate price/curve ──
+        # ── Demo mode — simulate ──
         if effective_mode == Mode.DEMO:
             sol_usd         = fetch_sol_price()
-            price_sol       = 0.000001          # simulated entry price in SOL
+            price_sol       = 0.000001
             entry_price_usd = price_sol * sol_usd
             bonding_curve   = "DEMO-CURVE"
             curve_sol       = 0.0
             tokens_recv     = buy_amount_sol / price_sol
             tx_sig          = "DEMO-TX"
-            self._log(f"👻 DEMO: Simulated buy {buy_amount_sol} SOL → {token_address[:8]}…")
+            actual_slippage = 0.0
+            self._log(f"👻 DEMO: Simulated buy {buy_amount_sol} SOL → {token_address[:8]}…", event_type="BUY")
         else:
-            # Derive bonding curve
             bonding_curve = self.pump_sdk.derive_bonding_curve(token_address)
             if not bonding_curve:
                 return {"success": False, "error": "Could not derive bonding curve"}
@@ -347,21 +608,48 @@ class BotManager:
             if price_sol == 0:
                 return {"success": False, "error": "Cannot read token price (not on bonding curve?)"}
 
+            # ── Enhancement 1: Jupiter price cross-validation ──
+            is_valid, price_sol_final = validate_price_with_jupiter(token_address, price_sol)
+            if not is_valid:
+                self._log(
+                    f"⚡ Price corrected by Jupiter: ${price_sol:.10f} → ${price_sol_final:.10f}",
+                    event_type="PRICE_VALIDATION"
+                )
+                price_sol = price_sol_final
+
             sol_usd         = fetch_sol_price()
             entry_price_usd = price_sol * sol_usd
 
-            self._log(f"💸 Executing buy: {buy_amount_sol} SOL → {token_address[:8]}…")
+            self._log(f"💸 Executing buy: {buy_amount_sol} SOL → {token_address[:8]}…", event_type="BUY")
             buy_result = self.pump_sdk.buy_token(
                 token_address, bonding_curve, buy_amount_sol, buy_priority_fee
             )
             if not buy_result.get("success"):
                 err = buy_result.get("error", "Buy failed")
-                self._log(f"Buy failed: {err}", "error")
+                self._log(f"Buy failed: {err}", "error", "BUY")
                 return {"success": False, "error": err}
             tx_sig = buy_result.get("signature", "")
             time.sleep(3)
-            raw = self.get_token_balance(token_address)
+            raw         = self.get_token_balance(token_address)
             tokens_recv = (raw / 1e6) if raw > 0 else (buy_amount_sol / price_sol)
+
+            # ── Enhancement 3: Sandwich / MEV detection ──
+            expected_tokens = buy_amount_sol / price_sol if price_sol > 0 else 0
+            sandwich = detect_sandwich_attack(expected_tokens, tokens_recv, slippage)
+            if sandwich["sandwiched"]:
+                self._log(
+                    f"⚠️ SANDWICH: expected {expected_tokens:,.0f} tokens, got {tokens_recv:,.0f} "
+                    f"({sandwich['actual_slippage_pct']:.1f}% slippage)",
+                    "warning", "MEV"
+                )
+                notifier.notify(
+                    f"⚠️ <b>SANDWICH ATTACK DETECTED</b>\n"
+                    f"🪙 <code>{token_address[:16]}…</code>\n"
+                    f"📊 Expected: {expected_tokens:,.0f} tokens\n"
+                    f"📉 Received: {tokens_recv:,.0f} tokens\n"
+                    f"💸 Actual slippage: {sandwich['actual_slippage_pct']:.1f}%"
+                )
+            actual_slippage = sandwich.get("actual_slippage_pct", 0.0)
 
         tp_price = entry_price_usd * (1 + take_profit_percent / 100)
         sl_price = entry_price_usd * (1 - abs(stop_loss_percent) / 100)
@@ -391,11 +679,15 @@ class BotManager:
             "last_update":         datetime.now().isoformat(),
             "status":              "active",
             "mode":                effective_mode.value,
-            "safety_score":        safety.get("score", 100),
+            "safety_score":        score,
             "safety_warnings":     safety.get("warnings", []),
             "buy_priority_fee":    buy_priority_fee,
             "sell_priority_fee":   sell_priority_fee,
             "slippage":            slippage,
+            # Enhancement 9: slippage analytics
+            "expected_tokens":     buy_amount_sol / price_sol if price_sol > 0 else 0,
+            "actual_tokens":       tokens_recv,
+            "actual_slippage_pct": actual_slippage,
         }
 
         with self._lock:
@@ -403,7 +695,11 @@ class BotManager:
             self._save_positions()
 
         self._ensure_monitor()
-        self._log(f"{'👻 DEMO' if effective_mode==Mode.DEMO else '🚀'} Position opened: {tokens_recv:,.0f} tokens @ ${entry_price_usd:.10f}")
+        self._log(
+            f"{'👻 DEMO' if effective_mode==Mode.DEMO else '🚀'} Position opened: "
+            f"{tokens_recv:,.0f} tokens @ ${entry_price_usd:.10f}",
+            event_type="BUY"
+        )
         notifier.notify_buy(token_address, buy_amount_sol, entry_price_usd,
                             take_profit_percent, abs(stop_loss_percent), tx_sig)
 
@@ -414,16 +710,19 @@ class BotManager:
             "safety": safety, "mode": effective_mode.value,
         }
 
-    # ── Sell ─────────────────────────────────────────────────────────────────
+    # ── Sell (Enhancement 7: retry logic) ────────────────────────────────────
 
-    def _execute_sell(self, token_address: str, reason: str):
+    def _execute_sell(self, token_address: str, reason: str, retry_count: int = 0):
         with self._lock:
             pos = self.positions.get(token_address)
         if not pos:
             return
 
         is_demo = pos.get("mode") == Mode.DEMO.value
-        self._log(f"{'👻 DEMO ' if is_demo else ''}Selling {token_address[:8]}… [{reason}]", "warning")
+        self._log(
+            f"{'👻 DEMO ' if is_demo else ''}Selling {token_address[:8]}… [{reason}]",
+            "warning", "SELL"
+        )
 
         pnl_pct = pos.get("pnl_percent", 0)
         pnl_usd = pos.get("pnl_usd", 0)
@@ -433,7 +732,7 @@ class BotManager:
         if not is_demo:
             raw = self.get_token_balance(token_address)
             if raw == 0:
-                self._log("Balance is 0 — skipping sell", "warning")
+                self._log("Balance is 0 — skipping sell", "warning", "SELL")
                 with self._lock:
                     self.positions.pop(token_address, None)
                     self._save_positions()
@@ -446,17 +745,32 @@ class BotManager:
             )
             if result.get("success"):
                 tx_sig = result.get("signature", "")
-                self._log(f"✅ Sell confirmed [{reason}]: {tx_sig[:16]}…")
+                self._log(f"✅ Sell confirmed [{reason}]: {tx_sig[:16]}…", event_type="SELL")
             else:
                 err = result.get("error", "unknown")
-                self._log(f"⛔ Sell failed [{reason}]: {err}", "error")
+                if retry_count < 5:
+                    self._log(
+                        f"⚠️ Sell failed [{reason}] — retrying in 10s (attempt {retry_count+1}/5): {err}",
+                        "warning", "SELL"
+                    )
+                    time.sleep(10)
+                    return self._execute_sell(token_address, reason, retry_count + 1)
+                else:
+                    self._log(f"⛔ Sell FAILED after 5 retries [{reason}]: {err}", "error", "SELL")
+                    notifier.notify(
+                        f"🚨 <b>SELL FAILED — MANUAL ACTION REQUIRED</b>\n"
+                        f"🪙 <code>{token_address[:16]}…</code>\n"
+                        f"❌ {err}\n"
+                        f"⚠️ Retried 5× — please sell manually."
+                    )
         else:
-            self._log(f"👻 DEMO sell executed @ ${exit_px:.10f}")
+            self._log(f"👻 DEMO sell executed @ ${exit_px:.10f}", event_type="SELL")
 
         notifier.notify_sell(token_address, reason, pnl_pct, pnl_usd, exit_px, tx_sig)
 
         with self._lock:
             self.positions.pop(token_address, None)
+            self._demo_trends.pop(token_address, None)
             self._save_positions()
 
     def stop_position(self, token_address: str) -> dict:
@@ -475,7 +789,7 @@ class BotManager:
 
     def _ensure_monitor(self):
         if not self._monitor_thread or not self._monitor_thread.is_alive():
-            self._running = True
+            self._running        = True
             self._monitor_thread = threading.Thread(
                 target=self._monitor_loop, daemon=True, name="monitor"
             )
@@ -487,6 +801,21 @@ class BotManager:
 
         while self._running:
             try:
+                # Enhancement 12: Stuck position check every 300s
+                if time.time() - self._last_stuck_check > 300:
+                    self.check_stuck_positions()
+                    self._last_stuck_check = time.time()
+
+                # Enhancement 5: Clean expired arm confirmations
+                with self._confirmation_lock:
+                    expired = [
+                        addr for addr, p in self.pending_confirmations.items()
+                        if time.time() > p["expires_at"]
+                    ]
+                    for addr in expired:
+                        self.pending_confirmations.pop(addr, None)
+                        self._log(f"⏰ Arm expired: {addr[:8]}…", event_type="BUY")
+
                 if not self.positions:
                     time.sleep(3)
                     continue
@@ -509,23 +838,25 @@ class BotManager:
                     is_demo = pos.get("mode") == Mode.DEMO.value
 
                     if is_demo:
-                        # Simulate price walk: ±3% per tick so TP/SL can trigger
-                        import random
-                        last_usd    = pos.get("current_price_usd", pos["entry_price_usd"])
-                        change      = random.uniform(-0.03, 0.05)
-                        current_usd = max(last_usd * (1 + change), 1e-12)
-                        curve_sol   = 0.0
+                        # Enhancement 6: Realistic log-normal simulation
+                        last_usd  = pos.get("current_price_usd", pos["entry_price_usd"])
+                        trend     = self._demo_trends.get(token_address, "neutral")
+                        current_usd, new_trend = simulate_realistic_price_move(
+                            last_usd, trend, pos["entry_price_usd"]
+                        )
+                        self._demo_trends[token_address] = new_trend
+                        curve_sol = 0.0
                     else:
                         price_sol, curve_sol = self.get_token_price(pos["bonding_curve"])
                         if price_sol == 0:
                             continue
                         current_usd = price_sol * sol_usd
-                    entry_usd   = pos["entry_price_usd"]
-                    pnl_pct     = (current_usd - entry_usd) / entry_usd * 100
-                    pnl_usd     = (current_usd - entry_usd) * pos["position_size"]
 
-                    # Update trailing stop
-                    highest  = max(pos.get("highest_price_usd", entry_usd), current_usd)
+                    entry_usd = pos["entry_price_usd"]
+                    pnl_pct   = (current_usd - entry_usd) / entry_usd * 100
+                    pnl_usd   = (current_usd - entry_usd) * pos["position_size"]
+
+                    highest   = max(pos.get("highest_price_usd", entry_usd), current_usd)
                     sl_target = pos["sl_target_usd"]
                     tp_target = pos["tp_target_usd"]
                     trail_pct = pos.get("trailing_stop_pct", 0)
@@ -534,10 +865,11 @@ class BotManager:
                         new_sl = highest * (1 - trail_pct / 100)
                         if new_sl > sl_target:
                             sl_target = new_sl
-                            self._log(f"Trailing SL → ${sl_target:.10f}")
+                            self._log(f"Trailing SL → ${sl_target:.10f}", event_type="SELL")
 
-                    pos_val  = pos["position_size"] * current_usd
-                    tp_prog  = max(0, min(100, (pnl_pct / pos["take_profit_pct"]) * 100)) if pos["take_profit_pct"] > 0 else 0
+                    pos_val = pos["position_size"] * current_usd
+                    tp_prog = max(0, min(100, (pnl_pct / pos["take_profit_pct"]) * 100)) \
+                              if pos["take_profit_pct"] > 0 else 0
 
                     with self._lock:
                         pos.update({
@@ -556,10 +888,10 @@ class BotManager:
                     logger.info(f"[{token_address[:8]}] ${current_usd:.10f} | {pnl_pct:+.2f}%")
 
                     if current_usd >= tp_target:
-                        self._log(f"🎯 TP hit @ ${current_usd:.10f} (+{pnl_pct:.2f}%)")
+                        self._log(f"🎯 TP hit @ ${current_usd:.10f} (+{pnl_pct:.2f}%)", event_type="TP_HIT")
                         to_sell.append((token_address, "Take Profit"))
                     elif current_usd <= sl_target:
-                        self._log(f"🛑 SL hit @ ${current_usd:.10f} ({pnl_pct:.2f}%)", "warning")
+                        self._log(f"🛑 SL hit @ ${current_usd:.10f} ({pnl_pct:.2f}%)", "warning", "SL_HIT")
                         to_sell.append((token_address, "Stop Loss"))
 
                 for addr, reason in to_sell:
@@ -576,11 +908,11 @@ class BotManager:
 
         logger.info("Monitor stopped")
 
-    # ── Auto-scanner loop (Full-Auto mode) ────────────────────────────────────
+    # ── Auto-scanner loop (Full-Auto) ─────────────────────────────────────────
 
     def _ensure_scanner(self):
         if not self._scanner_thread or not self._scanner_thread.is_alive():
-            self._scan_running = True
+            self._scan_running   = True
             self._scanner_thread = threading.Thread(
                 target=self._scanner_loop, daemon=True, name="scanner"
             )
@@ -589,12 +921,6 @@ class BotManager:
             self._log(f"🔍 {label} started — scanning real-time token launches")
 
     def _scanner_loop(self):
-        """
-        Real-time scanner: Pump.fun newest + DexScreener newest pairs.
-        - Resets the seen-set every hour so tokens can be re-evaluated after launch
-        - Runs for SEMI_AUTO (scan only) and FULL_AUTO (scan + auto-buy)
-        - Skips all modes below SEMI_AUTO
-        """
         logger.info("Scanner loop started")
         scanned_tokens: set = set()
         last_reset = time.time()
@@ -605,15 +931,13 @@ class BotManager:
                     time.sleep(10)
                     continue
 
-                # Reset seen-set every 60 min so tokens don't expire permanently
                 if time.time() - last_reset > 3600:
                     scanned_tokens.clear()
                     last_reset = time.time()
                     logger.info("Scanner: seen-set cleared (hourly reset)")
 
-                # ── Fetch real-time tokens ──
-                pump_tokens = scan_pump_fun_new(limit=50)   # Pump.fun newest (last 2h)
-                dex_tokens  = scan_dexscreener_new_pairs(limit=30)  # DexScreener newest
+                pump_tokens = scan_pump_fun_new(limit=50)
+                dex_tokens  = scan_dexscreener_new_pairs(limit=30)
                 all_tokens  = pump_tokens + dex_tokens
 
                 fresh = [
@@ -629,13 +953,12 @@ class BotManager:
                 logger.info(f"Scanner: {len(fresh)} fresh tokens to evaluate (from {len(all_tokens)} total)")
 
                 new_results = []
-                for token in fresh[:12]:   # max 12 per cycle to avoid RPC hammering
+                for token in fresh[:12]:
                     addr = token.get("token_address", "")
                     if not addr or len(addr) < 32:
                         continue
                     scanned_tokens.add(addr)
 
-                    # On-chain safety checks
                     bc    = self.pump_sdk.derive_bonding_curve(addr)
                     chain = full_token_scan(self.client, addr, bc)
 
@@ -643,6 +966,7 @@ class BotManager:
                         "safety_score":    chain["score"],
                         "safety_warnings": chain["warnings"],
                         "mint_auth_ok":    chain.get("mint_auth_disabled", False),
+                        "mint_authority":  chain.get("mint_authority"),
                         "top10_pct":       chain.get("top10_pct", 0.0),
                         "passes_filters":  chain["safe"],
                         "bonding_curve":   bc,
@@ -654,10 +978,10 @@ class BotManager:
                     self._log(
                         f"🔍 {token.get('symbol','?')} ({addr[:8]}…) | "
                         f"Score {chain['score']}/100 | {age_str} | "
-                        f"{'✅ PASS' if chain['safe'] else '⛔ FAIL'}"
+                        f"{'✅ PASS' if chain['safe'] else '⛔ FAIL'}",
+                        event_type="SAFETY_CHECK"
                     )
 
-                    # Auto-buy in Full-Auto mode
                     if (self.mode == Mode.FULL_AUTO
                             and chain["safe"]
                             and addr not in self.positions
@@ -667,7 +991,7 @@ class BotManager:
                         auto_amount = float(os.getenv("AUTO_BUY_SOL", "0.05"))
 
                         if sol_bal >= auto_amount + 0.01:
-                            self._log(f"🤖 Full-Auto: Buying {addr[:8]}… (score {chain['score']}/100)")
+                            self._log(f"🤖 Full-Auto: Buying {addr[:8]}… (score {chain['score']}/100)", event_type="BUY")
                             self.start_bot(
                                 token_address         = addr,
                                 buy_amount_sol        = auto_amount,
@@ -681,9 +1005,7 @@ class BotManager:
                             )
 
                 with self._lock:
-                    # Newest results at the top, cap at 200
                     combined = new_results + self.scan_results
-                    # Deduplicate by address
                     seen_addr, deduped = set(), []
                     for r in combined:
                         a = r.get("token_address", "")
@@ -692,7 +1014,7 @@ class BotManager:
                             deduped.append(r)
                     self.scan_results = deduped[:200]
 
-                time.sleep(20)   # scan every 20s
+                time.sleep(20)
 
             except Exception as e:
                 logger.error(f"Scanner loop: {e}", exc_info=True)

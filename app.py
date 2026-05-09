@@ -233,6 +233,145 @@ def test_notification():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Arm / Confirm (Enhancement 5) ────────────────────────────────────────────
+
+@app.route("/api/arm", methods=["POST"])
+def arm_position():
+    try:
+        d = request.json or {}
+        token_address = (d.get("token_address") or "").strip()
+        if not token_address:
+            return jsonify({"error": "token_address required"}), 400
+        config = {
+            "buy_amount_sol":      float(d.get("buy_amount", 0.05)),
+            "take_profit_percent": float(d.get("take_profit_percent", 75)),
+            "stop_loss_percent":   float(d.get("stop_loss_percent", 15)),
+            "trailing_stop_percent":float(d.get("trailing_stop_percent", 0)),
+            "slippage":            float(d.get("slippage", 0.10)),
+            "buy_priority_fee":    int(d.get("buy_priority_fee", 100_000)),
+            "sell_priority_fee":   int(d.get("sell_priority_fee", 800_000)),
+        }
+        result = bot_manager.arm_position(token_address, config)
+        return jsonify(result), (200 if result.get("success") else 400)
+    except Exception as e:
+        logger.exception("arm_position")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/confirm", methods=["POST"])
+def confirm_position():
+    try:
+        d = request.json or {}
+        token_address = (d.get("token_address") or "").strip()
+        if not token_address:
+            return jsonify({"error": "token_address required"}), 400
+        result = bot_manager.confirm_position(token_address)
+        return jsonify(result), (200 if result.get("success") else 400)
+    except Exception as e:
+        logger.exception("confirm_position")
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Analytics (Enhancement 9) ─────────────────────────────────────────────────
+
+@app.route("/api/analytics/slippage", methods=["GET"])
+def analytics_slippage():
+    try:
+        with bot_manager._lock:
+            all_pos = list(bot_manager.positions.values())
+        slippages = [
+            p.get("actual_slippage_pct", 0.0) for p in all_pos
+            if p.get("actual_slippage_pct") is not None
+        ]
+        if not slippages:
+            return jsonify({"count": 0, "avg": 0, "min": 0, "max": 0, "positions": []})
+        return jsonify({
+            "count": len(slippages),
+            "avg":   round(sum(slippages) / len(slippages), 2),
+            "min":   round(min(slippages), 2),
+            "max":   round(max(slippages), 2),
+            "positions": [
+                {
+                    "token":    p.get("token_address", "")[:16],
+                    "slippage": p.get("actual_slippage_pct", 0),
+                    "expected": p.get("expected_tokens", 0),
+                    "actual":   p.get("actual_tokens", 0),
+                }
+                for p in all_pos
+            ],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Log filtering (Enhancement 11) ───────────────────────────────────────────
+
+@app.route("/api/logs/filter", methods=["POST"])
+def filter_logs():
+    try:
+        d          = request.json or {}
+        event_type = d.get("event_type")   # e.g. "BUY", "SELL", "TP_HIT", "SL_HIT", "MEV"
+        level      = d.get("level")        # "info" | "warning" | "error"
+        token      = d.get("token")        # partial address match
+        limit      = int(d.get("limit", 100))
+
+        logs = bot_manager.activity_log[:]
+        if event_type:
+            logs = [l for l in logs if l.get("event_type") == event_type.upper()]
+        if level:
+            logs = [l for l in logs if l.get("level") == level.lower()]
+        if token:
+            logs = [l for l in logs if token.lower() in l.get("message", "").lower()]
+
+        return jsonify({"count": len(logs), "logs": logs[-limit:]})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Health / stuck positions (Enhancement 12) ─────────────────────────────────
+
+@app.route("/api/health/positions", methods=["GET"])
+def health_positions():
+    try:
+        from datetime import datetime as _dt
+        now    = _dt.now()
+        stuck  = []
+        active = []
+
+        with bot_manager._lock:
+            positions = list(bot_manager.positions.values())
+
+        for pos in positions:
+            if pos.get("status") != "active":
+                continue
+            active.append(pos)
+            try:
+                dt    = _dt.fromisoformat(pos.get("last_update", ""))
+                age_s = (now - dt).total_seconds()
+                if age_s > 300:
+                    stuck.append({
+                        "token":       pos.get("token_address", "")[:16],
+                        "age_minutes": round(age_s / 60, 1),
+                        "pnl_pct":     pos.get("pnl_percent", 0),
+                    })
+            except Exception:
+                continue
+
+        if stuck:
+            status = "CRITICAL" if len(stuck) >= len(active) else "DEGRADED"
+        else:
+            status = "HEALTHY"
+
+        return jsonify({
+            "status":         status,
+            "active_count":   len(active),
+            "stuck_count":    len(stuck),
+            "stuck_positions":stuck,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Ultra Mode ────────────────────────────────────────────────────────────────
 
 @app.route("/api/ultra/start", methods=["POST"])
@@ -285,6 +424,60 @@ def ultra_watchlist():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Ultra Whale scan / approve (Enhancement 8.5-8.7) ─────────────────────────
+
+@app.route("/api/ultra/whale/scan", methods=["POST"])
+def ultra_whale_scan():
+    try:
+        d              = request.json or {}
+        wallet_address = (d.get("wallet_address") or "").strip()
+        if not wallet_address:
+            return jsonify({"error": "wallet_address required"}), 400
+        tokens = ultra.scan_whale_tokens(wallet_address)
+        return jsonify({
+            "success": True,
+            "wallet":  wallet_address[:16] + "…",
+            "count":   len(tokens),
+            "tokens":  tokens,
+        })
+    except Exception as e:
+        logger.exception("ultra_whale_scan")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ultra/whale/approve", methods=["POST"])
+def ultra_whale_approve():
+    try:
+        d       = request.json or {}
+        mint    = (d.get("token_address") or "").strip()
+        action  = d.get("action", "approve")   # "approve" | "revoke"
+        if not mint:
+            return jsonify({"error": "token_address required"}), 400
+        if action == "revoke":
+            ultra.whale_approved_tokens.discard(mint)
+            return jsonify({"success": True, "action": "revoked", "mint": mint[:16]})
+        ultra.whale_approved_tokens.add(mint)
+        return jsonify({
+            "success":       True,
+            "action":        "approved",
+            "mint":          mint[:16],
+            "approved_count":len(ultra.whale_approved_tokens),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ultra/whale/approved", methods=["GET"])
+def ultra_whale_approved():
+    try:
+        return jsonify({
+            "count":  len(ultra.whale_approved_tokens),
+            "tokens": list(ultra.whale_approved_tokens),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.route("/api/health", methods=["GET"])
@@ -296,8 +489,19 @@ def health():
     })
 
 
+# ── Enhancement 10: Graceful shutdown signal handlers ────────────────────────
+
+def _graceful_exit(signum, frame):
+    logger.info(f"Signal {signum} received — shutting down gracefully…")
+    bot_manager.shutdown_gracefully()
+    raise SystemExit(0)
+
+
 if __name__ == "__main__":
     import signal, subprocess
+    signal.signal(signal.SIGTERM, _graceful_exit)
+    signal.signal(signal.SIGINT,  _graceful_exit)
+
     port = int(os.environ.get("PORT", 5000))
     # Free the port if something is still holding it
     try:

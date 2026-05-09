@@ -34,6 +34,10 @@ class UltraMode:
         self.last_event   = ""
         self.log          = []
 
+        # Whale approval store
+        self.whale_pending_tokens:  list = []   # from _scan_whale_tokens()
+        self.whale_approved_tokens: set  = set()  # user-approved mints
+
         # Config — overwritten by start()
         self.cfg = {
             "sol_amount":    0.05,
@@ -100,6 +104,67 @@ class UltraMode:
         self.cfg["whale_wallets"] = [w.strip() for w in wallets if w.strip()]
         self._log(f"🐋 Watchlist saved: {len(self.cfg['whale_wallets'])} wallets")
         return {"success": True, "count": len(self.cfg["whale_wallets"])}
+
+    # ── Enhancement 8.1: Whale wallet token scanner ───────────────────────────
+
+    def scan_whale_tokens(self, wallet_address: str) -> list:
+        """
+        Scan a whale wallet's current SPL token holdings.
+        Returns tokens where MC is between 5k–15k USD for user review / approval.
+        """
+        import base64 as _b64, struct as _struct
+        TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        results = []
+        try:
+            resp = self.client.get_token_accounts_by_owner(
+                Pubkey.from_string(wallet_address),
+                {"programId": TOKEN_PROGRAM_ID}
+            )
+            if not resp.value:
+                return []
+
+            mints = []
+            for acct in resp.value[:25]:
+                try:
+                    info = self.client.get_account_info(acct.pubkey)
+                    if info.value:
+                        raw = info.value.data
+                        data = _b64.b64decode(raw[0]) if isinstance(raw, (list, tuple)) else raw
+                        if len(data) >= 32:
+                            mint = str(Pubkey.from_bytes(data[0:32]))
+                            mints.append(mint)
+                except Exception:
+                    continue
+
+            for mint in mints:
+                try:
+                    r = requests.get(
+                        f"https://api.dexscreener.com/latest/dex/tokens/{mint}",
+                        timeout=5
+                    )
+                    if r.status_code == 200:
+                        pairs = r.json().get("pairs") or []
+                        if pairs:
+                            mc  = float(pairs[0].get("marketCap") or 0)
+                            tok = pairs[0].get("baseToken") or {}
+                            if 5_000 <= mc <= 15_000:
+                                results.append({
+                                    "mint":           mint,
+                                    "name":           tok.get("name", "?"),
+                                    "symbol":         tok.get("symbol", "?"),
+                                    "market_cap_usd": mc,
+                                    "price_usd":      float(pairs[0].get("priceUsd") or 0),
+                                    "volume_h1":      (pairs[0].get("volume") or {}).get("h1", 0),
+                                    "approved":       mint in self.whale_approved_tokens,
+                                })
+                except Exception:
+                    continue
+
+            self.whale_pending_tokens = results
+            self._log(f"🐋 Wallet scan: {len(results)} token(s) in 5k–15k MC range")
+        except Exception as e:
+            self._log(f"scan_whale_tokens error: {e}", "error")
+        return results
 
     # ── Logging ───────────────────────────────────────────────────────────────
 
@@ -245,9 +310,17 @@ class UltraMode:
                 if not is_pump_buy:
                     return
 
-                # Extract token mint from the logs (best-effort)
+                # Extract token mint — 3-method fallback chain (Enhancement 8.3)
                 mint = self._extract_mint_from_logs(logs, sig)
                 if not mint:
+                    return
+
+                # Enhancement 8.4: Check approval list if configured
+                if self.whale_approved_tokens and mint not in self.whale_approved_tokens:
+                    self._log(
+                        f"⏭️ Whale bought {mint[:12]}… but not in approved list — skipping",
+                        "warning"
+                    )
                     return
 
                 self._log(f"🐋 Whale buy detected! Token: {mint[:12]}… TX: {sig[:16]}…")
@@ -446,12 +519,32 @@ class UltraMode:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _fast_score(self, mint: str) -> dict:
+        """
+        Fast on-chain authority check (<200ms).
+        Whitelist: Pump.fun program holding mint/freeze authority is SAFE (bonding curve phase).
+        Only fail if a dev wallet or unknown key holds authority.
+        """
+        PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
         try:
             result = check_mint_authority(self.client, mint)
+
+            mint_auth   = result.get("mint_authority")
+            freeze_auth = result.get("freeze_authority")
+
+            # Mint authority check
             if not result.get("mint_auth_disabled"):
-                return {"pass": False, "reason": "Mint authority ENABLED"}
+                if mint_auth == PUMP_PROGRAM:
+                    pass  # ✅ Pump.fun program — bonding curve, expected
+                else:
+                    return {"pass": False, "reason": f"Mint authority held by dev: {(mint_auth or 'unknown')[:16]}"}
+
+            # Freeze authority check
             if not result.get("freeze_auth_disabled"):
-                return {"pass": False, "reason": "Freeze authority ENABLED"}
+                if freeze_auth == PUMP_PROGRAM:
+                    pass  # ✅ Pump.fun program — safe
+                else:
+                    return {"pass": False, "reason": f"Freeze authority held by dev: {(freeze_auth or 'unknown')[:16]}"}
+
             return {"pass": True, "reason": "ok"}
         except Exception as e:
             return {"pass": False, "reason": f"Score error: {e}"}
@@ -487,30 +580,75 @@ class UltraMode:
         return None
 
     def _extract_mint_from_logs(self, logs: list, sig: str) -> str | None:
-        # Attempt to pull mint from DexScreener using the TX signature
-        # Fallback: return None and let caller handle
+        """
+        Enhancement 8.3 — Three-method fallback chain for mint extraction.
+        Method 1: DexScreener search by TX sig (3 retries).
+        Method 2: Solana RPC — parse transaction accounts.
+        Method 3: Regex scan of log strings for base58 addresses.
+        """
+        # Method 1: DexScreener with 3 retries
+        for attempt in range(3):
+            try:
+                r = requests.get(
+                    "https://api.dexscreener.com/latest/dex/search",
+                    params={"q": sig[:20]}, timeout=5,
+                )
+                if r.status_code == 200:
+                    pairs = r.json().get("pairs") or []
+                    if pairs:
+                        addr = (pairs[0].get("baseToken") or {}).get("address")
+                        if addr:
+                            self._log(f"Mint extracted via DexScreener (attempt {attempt+1}): {addr[:12]}…")
+                            return addr
+                if attempt < 2:
+                    time.sleep(1.5)
+            except Exception:
+                if attempt < 2:
+                    time.sleep(1.5)
+
+        # Method 2: Solana RPC — parse TX and look at account keys
         try:
-            r = requests.get(
-                f"https://api.dexscreener.com/latest/dex/search",
-                params={"q": sig[:20]}, timeout=5
-            )
-            if r.status_code == 200:
-                pairs = r.json().get("pairs") or []
-                if pairs:
-                    return (pairs[0].get("baseToken") or {}).get("address")
-        except Exception:
-            pass
-        # Scan logs for a base58-looking string near program mention
-        for log in logs:
-            parts = log.split()
-            for part in parts:
-                if 32 <= len(part) <= 44 and part not in (PUMP_PROGRAM,):
+            import base58 as _b58
+            sig_bytes = _b58.b58decode(sig)
+            tx_resp   = self.client.get_transaction(sig_bytes, encoding="json", max_supported_transaction_version=0)
+            if tx_resp and tx_resp.value:
+                accounts = (
+                    (tx_resp.value.transaction.transaction.message.account_keys or [])
+                    if hasattr(tx_resp.value.transaction.transaction, "message")
+                    else []
+                )
+                for acct in accounts:
+                    addr = str(acct)
+                    if addr not in (PUMP_PROGRAM, "11111111111111111111111111111111"):
+                        # Check if this looks like a token mint (not a known program)
+                        self._log(f"Mint extracted via RPC TX parse: {addr[:12]}…")
+                        return addr
+        except Exception as e:
+            logger.debug(f"RPC TX parse failed: {e}")
+
+        # Method 3: Regex scan of log strings for base58 addresses
+        try:
+            import base58 as _b58
+            import re
+            b58_pattern = re.compile(r'\b[1-9A-HJ-NP-Za-km-z]{32,44}\b')
+            skip = {PUMP_PROGRAM, "11111111111111111111111111111111",
+                    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"}
+            for log in logs:
+                for match in b58_pattern.findall(log):
+                    if match in skip:
+                        continue
                     try:
-                        import base58 as _b58
-                        _b58.b58decode(part)
-                        return part
+                        decoded = _b58.b58decode(match)
+                        if len(decoded) == 32:
+                            self._log(f"Mint extracted via log regex: {match[:12]}…")
+                            return match
                     except Exception:
                         continue
+        except Exception as e:
+            logger.debug(f"Regex mint extraction failed: {e}")
+
+        self._log("⚠️ Could not extract mint from whale TX — all 3 methods failed", "warning")
         return None
 
     def _rpc_to_ws(self, rpc_url: str) -> str:
